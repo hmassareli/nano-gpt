@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .venv/
+.vscode/
 checkpoints/
 *.pt
 benchmark_logs/
