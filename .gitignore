@@ -5,7 +5,3 @@ __pycache__/
 .vscode/
 checkpoints/
 *.pt
-benchmark_logs/
-autoresearch-repo/
-test_run.txt
-test_run2.txt
