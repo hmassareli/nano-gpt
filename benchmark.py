@@ -1,10 +1,11 @@
 """
-Benchmark: compara baseline vs two-stage head update.
+Benchmark: compara diferentes experimentos de treino.
 Uso:
-    uv run benchmark.py                     # 50 steps, quick-eval (padrao)
-    uv run benchmark.py --steps=100         # mais steps, mais confiavel
-    uv run benchmark.py --full-eval         # eval completo (mais lento)
-    uv run benchmark.py --no-eval           # pula eval, so mede velocidade
+    uv run benchmark.py train.py                           # roda 1 arquivo, 50 steps
+    uv run benchmark.py train.py train_exp002.py           # compara 2 arquivos
+    uv run benchmark.py train.py train_exp002.py --steps=100  # mais steps
+    uv run benchmark.py experiments/train_*.py --no-eval   # glob de experimentos
+    uv run benchmark.py --steps=100 --full-eval             # sem args = roda train.py
 """
 
 import subprocess
@@ -12,6 +13,7 @@ import sys
 import re
 import os
 import time
+import glob
 from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,8 +21,9 @@ LOGS_DIR = os.path.join(SCRIPT_DIR, "benchmark_logs")
 os.makedirs(LOGS_DIR, exist_ok=True)
 VENV_PYTHON = os.path.join(SCRIPT_DIR, ".venv", "Scripts", "python.exe")
 
-STEPS = 50  # default: balanco entre velocidade e confiabilidade
-EVAL_MODE = "quick"  # quick | full | none
+STEPS = 50
+EVAL_MODE = "quick"
+train_files = []
 
 for arg in sys.argv[1:]:
     if arg.startswith("--steps="):
@@ -29,11 +32,27 @@ for arg in sys.argv[1:]:
         EVAL_MODE = "full"
     elif arg == "--no-eval":
         EVAL_MODE = "none"
+    elif arg == "--quick-eval":
+        EVAL_MODE = "quick"
+    else:
+        # Treat as train file (support glob)
+        expanded = glob.glob(arg)
+        if expanded:
+            train_files.extend(expanded)
+        elif os.path.isfile(arg):
+            train_files.append(arg)
+        else:
+            print(f"Warning: '{arg}' not found, skipping")
 
-CONFIGS = [
-    {"name": "two_stage_impl", "two_stage": True},
-    {"name": "baseline_before", "two_stage": False},
-]
+# Default: just train.py
+if not train_files:
+    train_files = ["train.py"]
+
+# Build configs from file list
+CONFIGS = []
+for f in train_files:
+    name = os.path.splitext(os.path.basename(f))[0]
+    CONFIGS.append({"name": name, "script": f})
 
 BPB_RE = re.compile(r"val_bpb:\s+([\d.]+)")
 TOKENS_RE = re.compile(r"total_tokens_M:\s+([\d.]+)")
@@ -79,14 +98,12 @@ for i, cfg in enumerate(CONFIGS):
     log(f"{'-'*60}\n")
 
     cmd = [
-        VENV_PYTHON, "train.py",
+        VENV_PYTHON, cfg["script"],
         f"--steps={STEPS}",
         "--seq-len=512",
         "--device-batch-size=16",
         "--no-compile",
     ]
-    if cfg["two_stage"]:
-        cmd.append("--two-stage-head-update")
     if EVAL_MODE == "none":
         cmd.append("--no-eval")
     elif EVAL_MODE == "quick":
