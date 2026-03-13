@@ -1,0 +1,10 @@
+# Ignore
+__pycache__/
+*.pyc
+.venv/
+checkpoints/
+*.pt
+benchmark_logs/
+autoresearch-repo/
+test_run.txt
+test_run2.txt
