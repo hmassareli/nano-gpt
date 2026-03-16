@@ -34,11 +34,14 @@ VENV_PYTHON = get_python_executable()
 
 STEPS = 50
 EVAL_MODE = "quick"
+COOLDOWN_SECONDS = 0
 train_files = []
 
 for arg in sys.argv[1:]:
     if arg.startswith("--steps="):
         STEPS = int(arg.split("=", 1)[1])
+    elif arg.startswith("--cooldown="):
+        COOLDOWN_SECONDS = int(arg.split("=", 1)[1])
     elif arg == "--full-eval":
         EVAL_MODE = "full"
     elif arg == "--no-eval":
@@ -218,11 +221,9 @@ for i, cfg in enumerate(CONFIGS):
     if proc.returncode != 0:
         log(f"  *** FALHOU (exit code {proc.returncode}) ***")
 
-    # Cooldown between runs to avoid thermal throttling
-    if i < len(CONFIGS) - 1:
-        cooldown = 120  # seconds
-        log(f"\n  Cooldown: {cooldown}s para GPU esfriar...")
-        time.sleep(cooldown)
+    if i < len(CONFIGS) - 1 and COOLDOWN_SECONDS > 0:
+        log(f"\n  Cooldown: {COOLDOWN_SECONDS}s para GPU esfriar...")
+        time.sleep(COOLDOWN_SECONDS)
 
 # Summary table
 total_bench_time = time.time() - bench_start
