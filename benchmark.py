@@ -19,7 +19,18 @@ from datetime import datetime
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(SCRIPT_DIR, "benchmark_logs")
 os.makedirs(LOGS_DIR, exist_ok=True)
-VENV_PYTHON = os.path.join(SCRIPT_DIR, ".venv", "Scripts", "python.exe")
+
+def get_python_executable():
+    candidates = [
+        os.path.join(SCRIPT_DIR, ".venv", "Scripts", "python.exe"),
+        os.path.join(SCRIPT_DIR, ".venv", "bin", "python"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return sys.executable
+
+VENV_PYTHON = get_python_executable()
 
 STEPS = 50
 EVAL_MODE = "quick"

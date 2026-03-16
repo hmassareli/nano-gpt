@@ -14,6 +14,7 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 **Mechanism:** Stage 1 — forward backbone with no_grad, only head gets gradients, step on head. Stage 2 — full forward with updated head, only backbone gets gradients, step on backbone. Same batch reused.
 
 **Results:**
+
 - Initial loss: 7.66 (two-stage) vs 9.01 (baseline) — pre-adjusted head helps
 - Loss at step 50: 5.09 vs 5.08 — tied
 - Final loss (100 steps): 4.49 vs 4.49 — tied
@@ -31,14 +32,17 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 ## Discarded ideas (from early brainstorming)
 
 ### Lookahead on head (N head steps per backbone step)
+
 **Idea:** Normal end-to-end forward/backward, then N extra optimizer steps on just the head using the same gradients already computed.
-**Why discarded:** The extra head steps use hidden states from the backbone *before* its update — same staleness problem as two-stage, just milder. Also, Adam's momentum buffers get corrupted by the extra steps (different effective learning rate trajectory). Low novelty (similar to inner-loop optimization in meta-learning).
+**Why discarded:** The extra head steps use hidden states from the backbone _before_ its update — same staleness problem as two-stage, just milder. Also, Adam's momentum buffers get corrupted by the extra steps (different effective learning rate trajectory). Low novelty (similar to inner-loop optimization in meta-learning).
 
 ### Differential learning rate for head
+
 **Idea:** Simply increase lm_head LR by 2-3x relative to backbone.
 **Why discarded:** This is a well-known technique (popularized by fastai). Zero novelty. Also, Adam normalizes by sqrt(v_t), so scaling LR has diminishing returns once momentums adapt.
 
 ### Partial gradient accumulation (head accumulates more batches)
+
 **Idea:** Run everything end-to-end but accumulate more micro-batches for the head before stepping the backbone.
 **Why discarded:** Variant of two-stage with the same desynchronization problem. The head trains on backbone features that are about to change.
 
@@ -47,6 +51,7 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 ## Planned experiments
 
 ### EXP-002: Spectral Head Init (Embedding SVD)
+
 **Hypothesis:** Initializing lm_head with the pseudo-inverse of wte provides high effective dimension from step 0, with zero training overhead.
 **Type:** Episodic (init-time only). Does not change the forward pass or training loop.
 **Mechanism:** Computes SVD of wte at init, sets lm_head = pinv(wte). After step 0, head evolves freely.
@@ -54,14 +59,16 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 **Assessment:** NEGATIVE. Init-time fixes don't address continuous conditioning degradation. The pseudo-inverse starts with good condition number but it decays just as fast — the paper's Fig.3 shows this explicitly.
 
 ### EXP-003: Head Conditioning Regularization
+
 **Hypothesis:** Penalizing ||W^T·W - αI||² keeps singular values uniform, preserving gradient flow throughout training.
 **Type:** Episodic (regularization penalty). Does not change forward pass.
 **Mechanism:** At each step, computes W^T·W (D×D matrix), scales by diagonal mean, penalizes Frobenius distance to identity. λ=0.01. Adds separate `.backward()`.
 **Params:** 0 extra (same model as baseline).
 **Status:** Benchmarked (100 steps).
-**Assessment:** NEUTRAL. Correct intuition (maintain orthogonality), but λ=0.01 may be too weak to matter, and the regularization can fight the model if the head *needs* temporary low rank during training.
+**Assessment:** NEUTRAL. Correct intuition (maintain orthogonality), but λ=0.01 may be too weak to matter, and the regularization can fight the model if the head _needs_ temporary low rank during training.
 
 ### EXP-004: Soft Weight Tying (head ↔ embedding)
+
 **Hypothesis:** λ||W_head - W_emb||² continuously anchors the head to the semantic structure of the embedding, preventing conditioning degradation.
 **Type:** Episodic (regularization penalty). Does not change forward pass.
 **Mechanism:** MSE penalty between lm_head.weight and wte.weight with λ=0.05. Applied after optimizer step.
@@ -70,6 +77,7 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 **Assessment:** HARMFUL. W_emb (std=1.0) and W_head (std=0.001) are initialized at vastly different scales — MSE penalty dominates early gradients. More fundamentally, W_emb and W_head serve mathematically opposing functions (encoding vs decoding). Tying them fights the specialization each matrix needs. Not recommended.
 
 ### EXP-005: Contrastive Auxiliary Loss (Head Bypass)
+
 **Hypothesis:** A contrastive loss (InfoNCE) on the hidden states gives the backbone a gradient channel that bypasses the head bottleneck entirely.
 **Type:** Auxiliary loss. Does not change architecture, but modifies `forward()` to return hiddens.
 **Mechanism:** Subsamples 256 tokens per micro-step. Computes cosine similarity matrix (256×256). Same-target tokens = positive pairs. InfoNCE with temperature=0.1. Combined backward: `((CE_loss / grad_accum) + contrastive_loss).backward()`. λ=0.1.
@@ -79,6 +87,7 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 **Assessment (theoretical):** Promising training-time bypass. Backbone receives gradient signal to cluster hiddens by token identity without going through the degraded lm_head. However, at inference time the prediction still passes through the single lm_head — the structural bottleneck remains for decoding.
 
 ### EXP-006: Factored Head (512→482→8192) iso-param
+
 **Hypothesis:** A two-layer head with non-linearity (GELU) provides better gradient flow than a single linear projection, by breaking the rank-1 update pattern.
 **Type:** Structural (changes forward pass and architecture).
 **Mechanism:** Replaces `lm_head: Linear(D, V)` with `lm_head_expand: Linear(D, H)` → GELU → `lm_head: Linear(H, V)`. Softcap=13 on logits.
@@ -89,6 +98,7 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 **Assessment:** NEGATIVE. GELU non-linearity alone does not help. Serves as critical control for EXP-007: proves that multi-head diversity (not GELU) drives the improvement.
 
 ### EXP-007: Multi-Head Output (3 parallel subheads)
+
 **Hypothesis:** Splitting the single lm_head into K independent subheads creates K independent gradient channels, so even if one subhead's conditioning degrades, the others still carry gradient information. This addresses the bottleneck structurally in both training AND inference.
 **Type:** Structural (changes architecture and forward pass).
 **Mechanism:** Replaces single `lm_head: Linear(D, V)` with K=3 parallel subheads, each: `proj: Linear(D, D_sub)` → GELU → `out: Linear(D_sub, V)`. Final logits = sum of all K subhead logits, then softcap=15.
@@ -100,6 +110,7 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 **Assessment (theoretical):** Most promising experiment. Three independent gradient pathways mean: (1) rank degradation in one subhead doesn't affect the others, (2) GELU non-linearity in each breaks the rank-1 update pattern, (3) the model has structural diversity at inference time (not just training-time like EXP-005). Key test: does parallel decomposition (3×160) outperform single-pathway (1×482) from EXP-006 at equal parameter count?
 
 **Results (300 steps):**
+
 - val_bpb: **1.157** vs baseline **1.144** → Δ = **+0.013 bpb (+1.1%)** — baseline vence
 - Training loss final: 3.373 vs 3.337 → **+0.036 (+1.1%)**
 - Throughput: 6,394 tok/s vs 6,669 tok/s → **-4.1% overhead**
@@ -117,6 +128,7 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 | 299 | 3.373 | 3.337 | +0.036 | Baseline vence por margem estável |
 
 **Dinâmica observada:**
+
 1. **Steps 0→50**: EXP-007 fica atrás — as 3 heads gastam steps iniciais se coordenando.
 2. **Steps 50→100**: EXP-007 acelera e cruza o baseline brevemente (~step 100). Esse era o resultado animador do benchmark de 100 steps.
 3. **Steps 100→300**: A vantagem **não se sustenta**. O baseline volta a liderar e mantém margem de ~0.036 no loss e +0.013 bpb na validação até o final.
@@ -156,6 +168,7 @@ EXP-006 (Factored Head: 512→482→GELU→8192) isola o efeito do GELU. Resulta
 ### Perguntas abertas para os próximos experimentos
 
 O resultado do EXP-007 (bom no início, perde depois) motiva toda a segunda geração de experimentos (012-024):
+
 1. **É o colapso das heads?** → Testar diversidade forçada e/ou supervisionada (014, 015, 017, 018, 019, 020)
 2. **É o GELU?** → O controle principal continua sendo 012/013 vs a nova linha linear supervisionada (017/018)
 3. **É o rank < D?** → Testar somas de ranks = D (012, 013, 017, 018)
@@ -206,6 +219,7 @@ O paper de Godey identifica dois gargalos no backward pass do LM head:
 2. **Gargalo de otimização**: Mesmo dentro de D, o gradiente não usa todo o espaço disponível. O rank efetivo é $k \ll D$, especialmente no início do treino. Ou seja, o fluxo real é $\mathbb{R}^V \to \mathbb{R}^D \to \mathbb{R}^k$.
 
 **O que nossos dados mostram (baseline, step 0):**
+
 - `survival = 0.146` → apenas 14.6% da norma do gradiente sobrevive à projeção pelo head
 - `head_effrank = 223` de um máximo de 512 → usando apenas 43% do rank disponível
 - `top10_energy = 28.2%` → os 10 maiores SVs concentram quase 1/3 da energia total
@@ -216,12 +230,14 @@ Isso sugere que **ambos** os gargalos existem simultaneamente. O primeiro (V→D
 
 **Linha A — Atacar o gargalo de otimização (fazer o head usar D inteiro):**
 Se conseguirmos forçar o head a usar todas as 512 dimensões uniformemente, o survival sobe e o backbone recebe gradientes mais ricos. Abordagens:
+
 - Regularização de ortogonalidade (EXP-016): $\|W^T W - I\|^2$
 - Multi-head com diversidade forçada (EXP-014, 015, 019, 020)
 - Temperature schedule (EXP-024)
 
 **Linha B — Contornar o gargalo estrutural (gradientes que não passam pelo head):**
 Criar canais alternativos de gradiente que bypassam a compressão V→D completamente:
+
 - Deep supervision (EXP-021): CE auxiliar na camada 6
 - Embedding space loss (EXP-022): $\|h - e_{target}\|^2$ gera gradiente full-rank direto no hidden
 
@@ -238,6 +254,7 @@ Os experimentos multi-head (007, 012-020) testam uma terceira possibilidade: **d
 **Pergunta aberta:** Se mantivermos os heads distintos por supervisão individual ou por roteamento dependente do input, e não perdermos dimensões (max rank ≥ D), o multi-head supera o baseline de forma sustentável? Ou o baseline com boa regularização (016) resolve o mesmo problema de forma mais simples?
 
 Os experimentos 012-020 foram desenhados para systematicamente isolar essas variáveis:
+
 - Número de heads (2 vs 3 vs 4)
 - Papel da não-linearidade (linha com GELU vs linha linear supervisionada)
 - Mecanismo de preservação de canais (nenhum, dropout, cosine, per-head CE, gating)
@@ -421,12 +438,13 @@ Os experimentos 012-020 foram desenhados para systematicamente isolar essas vari
 **Status:** IMPLEMENTADO. O embedding alvo entra com `detach`, então a loss realmente supervisiona o hidden sem depender do Jacobiano do LM head.
 **Params:** 0 extras.
 **Originalidade:** **Alta.** Ninguém na literatura conectou embedding space loss ao gradient bottleneck do LM head. O gradiente $2\alpha(h - e_y)$ é:
+
 - Full-rank (direção arbitrária em $\mathbb{R}^D$)
 - Sem compressão (não passa pelo head)
 - Sem custo de parâmetros
 - Semanticamente rico (aponta pro embedding do token correto)
-**Importância:** Se funcionar, é a solução mais simples possível pro problema identificado pelo paper de Godey. Custo zero, implementação trivial, ataca os dois gargalos ao mesmo tempo.
-**File:** `experiments/train_exp022_embedding_loss.py`
+  **Importância:** Se funcionar, é a solução mais simples possível pro problema identificado pelo paper de Godey. Custo zero, implementação trivial, ataca os dois gargalos ao mesmo tempo.
+  **File:** `experiments/train_exp022_embedding_loss.py`
 
 ---
 
@@ -462,25 +480,25 @@ Os experimentos 012-020 foram desenhados para systematicamente isolar essas vari
 
 ### Tabela de variáveis controladas
 
-| Exp | Tipo | Heads | D_k | Max Rank | GELU | Diversidade | Params extras |
-|-----|------|-------|-----|----------|------|-------------|---------------|
-| Baseline | single head | 1 | — | 512 | — | — | 0 |
-| 016 | single + ortho reg | 1 | — | 512 | — | $W^TW≈I$ | 0 |
-| 007 | multi-head | 3 | 160 | 480 | sim | — | 0 |
-| 011 | multi-head | 3 | 160 | 480 | sim | head dropout | 0 |
-| 012 | multi-head | 2 | 256 | 512 | sim | — | +0.3M |
-| 013 | multi-head | 4 | 128 | 512 | sim | — | +0.3M |
-| 014 | multi-head | 4 | 128 | 512 | sim | cosine penalty | +0.3M |
-| 015 | multi-head | 4 | 128 | 512 | sim | DeCov | +0.3M |
-| 017 | multi-head | 2 | 256 | 512 | **não** | per-head CE | +0.3M |
-| 018 | multi-head | 4 | 128 | 512 | **não** | per-head CE | +0.3M |
-| 019 | multi-head | 4 | 128 | 512 | **não** | per-head CE + projector overlap | +0.3M |
-| 020 | multi-head | 4 | 128 | 512 | **não** | token gating + load balance | +0.3M |
-| 025 | multi-head | 4 | 128 | 512 | **não** | per-head CE + grad diversity | +0.3M |
-| 021 | deep supervision | 1 | — | 512 | — | — | +4.2M |
-| 022 | emb space loss | 1 | — | 512 | — | — | 0 |
-| 023 | MoS | 4 full | D | 4×512 | — | — | +16.8M |
-| 024 | temp schedule | 1 | — | 512 | — | — | 0 |
+| Exp      | Tipo               | Heads  | D_k | Max Rank | GELU    | Diversidade                     | Params extras |
+| -------- | ------------------ | ------ | --- | -------- | ------- | ------------------------------- | ------------- |
+| Baseline | single head        | 1      | —   | 512      | —       | —                               | 0             |
+| 016      | single + ortho reg | 1      | —   | 512      | —       | $W^TW≈I$                        | 0             |
+| 007      | multi-head         | 3      | 160 | 480      | sim     | —                               | 0             |
+| 011      | multi-head         | 3      | 160 | 480      | sim     | head dropout                    | 0             |
+| 012      | multi-head         | 2      | 256 | 512      | sim     | —                               | +0.3M         |
+| 013      | multi-head         | 4      | 128 | 512      | sim     | —                               | +0.3M         |
+| 014      | multi-head         | 4      | 128 | 512      | sim     | cosine penalty                  | +0.3M         |
+| 015      | multi-head         | 4      | 128 | 512      | sim     | DeCov                           | +0.3M         |
+| 017      | multi-head         | 2      | 256 | 512      | **não** | per-head CE                     | +0.3M         |
+| 018      | multi-head         | 4      | 128 | 512      | **não** | per-head CE                     | +0.3M         |
+| 019      | multi-head         | 4      | 128 | 512      | **não** | per-head CE + projector overlap | +0.3M         |
+| 020      | multi-head         | 4      | 128 | 512      | **não** | token gating + load balance     | +0.3M         |
+| 025      | multi-head         | 4      | 128 | 512      | **não** | per-head CE + grad diversity    | +0.3M         |
+| 021      | deep supervision   | 1      | —   | 512      | —       | —                               | +4.2M         |
+| 022      | emb space loss     | 1      | —   | 512      | —       | —                               | 0             |
+| 023      | MoS                | 4 full | D   | 4×512    | —       | —                               | +16.8M        |
+| 024      | temp schedule      | 1      | —   | 512      | —       | —                               | 0             |
 
 ### Comparações diretas planejadas
 
@@ -547,6 +565,7 @@ O esforço de multi-head **pode sim ser em vão** se a maior parte do problema v
 O caso em que multi-head ainda vale a pena é mais específico: quando há subutilização persistente de dimensões **dentro** de $D$ e quando diferentes canais conseguem entregar sinais de backward complementares ao backbone. É por isso que a nova linha 017-020/025 mudou de foco: ela não assume mais que "separar heads" por si só resolve. Ela testa explicitamente se esses canais continuam distintos no task-space, no roteamento por contexto, ou no próprio gradiente em $h$.
 
 Em termos práticos, eu trataria a linha multi-head agora como uma hipótese forte, mas já bem falsificável:
+
 - Se 017/018 falharem, a separação linear pura com supervisão individual já não sustenta a tese.
 - Se 020/025 não superarem 016, a decomposição em canais provavelmente não compensa a complexidade.
 - Se 022 funcionar muito bem, o diagnóstico mais forte passa a ser: o problema relevante não é subutilização de dimensões dentro de $D$, e sim o fato de forçar toda supervisão a passar por um LM head final.
