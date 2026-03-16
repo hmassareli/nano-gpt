@@ -488,6 +488,7 @@ DEPTH = 12              # number of transformer layers
 DEVICE_BATCH_SIZE = 128  # per-device batch size (reduce if OOM)
 SEQ_LEN_OVERRIDE = 0      # 0 = usar MAX_SEQ_LEN
 USE_TORCH_COMPILE = True
+N_EMBD_OVERRIDE = 0
 
 # CLI overrides (ex: uv run train.py --steps=100 --quick-eval)
 for arg in sys.argv[1:]:
@@ -503,6 +504,8 @@ for arg in sys.argv[1:]:
         DEVICE_BATCH_SIZE = int(arg.split("=", 1)[1])
     elif arg.startswith("--seq-len="):
         SEQ_LEN_OVERRIDE = int(arg.split("=", 1)[1])
+    elif arg.startswith("--n-embd="):
+        N_EMBD_OVERRIDE = int(arg.split("=", 1)[1])
     elif arg == "--no-compile":
         USE_TORCH_COMPILE = False
 
@@ -524,8 +527,13 @@ vocab_size = tokenizer.get_vocab_size()
 print(f"Vocab size: {vocab_size:,}")
 
 def build_model_config(depth):
-    base_dim = depth * ASPECT_RATIO
-    model_dim = ((base_dim + HEAD_DIM - 1) // HEAD_DIM) * HEAD_DIM
+    if N_EMBD_OVERRIDE:
+        model_dim = N_EMBD_OVERRIDE
+        if model_dim % HEAD_DIM != 0:
+            raise ValueError(f"--n-embd must be a multiple of HEAD_DIM={HEAD_DIM}; got {model_dim}")
+    else:
+        base_dim = depth * ASPECT_RATIO
+        model_dim = ((base_dim + HEAD_DIM - 1) // HEAD_DIM) * HEAD_DIM
     num_heads = model_dim // HEAD_DIM
     train_seq_len = min(MAX_SEQ_LEN, SEQ_LEN_OVERRIDE) if SEQ_LEN_OVERRIDE else MAX_SEQ_LEN
     return GPTConfig(
