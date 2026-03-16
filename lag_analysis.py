@@ -4,7 +4,9 @@ import glob
 import os
 
 LOG_DIR = "benchmark_logs"
-SECTION_HEADER_RE = re.compile(r'\[(\d+)/(\d+)\]\s+(.+?)\s+\((\d+)\s+steps\)')
+SECTION_HEADER_RE = re.compile(
+    r'^\s*\[(\d+)/(\d+)\]\s+(.+?)(?:\s+\((\d+)\s+steps\))?(?:\s+~.*)?\s*$'
+)
 
 # ── helpers ──────────────────────────────────────────────
 
