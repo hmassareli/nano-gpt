@@ -1,0 +1,40 @@
+
+============================================================
+  BENCHMARK: 1 configs x 1000 steps  (quick-eval)
+  Log: /workspace/nano-gpt/benchmark_logs/bench_bl_0316_0326_1000steps.log
+============================================================
+
+------------------------------------------------------------
+  [1/1] Baseline  (1000 steps)
+------------------------------------------------------------
+
+Vocab size: 8,192
+Model config: {'sequence_len': 512, 'vocab_size': 8192, 'n_layer': 12, 'n_head': 4, 'n_kv_head': 4, 'n_embd': 512, 'window_pattern': 'SSSL', 'compute_dtype': torch.bfloat16}
+Parameter counts:
+  wte                     : 4,194,304
+  value_embeds            : 25,165,824
+  lm_head                 : 4,194,304
+  transformer_matrices    : 37,749,504
+  scalars                 : 24
+  total                   : 71,303,960
+Estimated FLOPs per token: 2.681779e+08
+Scaling AdamW LRs by 1/sqrt(512/768) = 1.224745
+Time budget: 300s
+Gradient accumulation steps: 16
+Budget mode: tokens
+Token budget: 262,144,000
+step 00000 (0.0%) | loss: 9.010761 | lrm: 1.00 | dt: 3000ms | tok/sec: 87,389 | mfu: 2.4% | epoch: 1 | remaining: 261,881,856 tok    
+  grads | backbone: 0.0331 | head: 0.2218 | survival: 0.1491 | head_effrank: 223.6 | rank_ratio: 0.437 | top10e: 28.0%
+step 00001 (0.1%) | loss: 9.290386 | lrm: 1.00 | dt: 2611ms | tok/sec: 100,401 | mfu: 2.7% | epoch: 1 | remaining: 261,619,712 tok    
+step 00002 (0.2%) | loss: 8.825873 | lrm: 1.00 | dt: 2617ms | tok/sec: 100,160 | mfu: 2.7% | epoch: 1 | remaining: 261,357,568 tok    
+step 00003 (0.3%) | loss: 8.230273 | lrm: 1.00 | dt: 2621ms | tok/sec: 100,028 | mfu: 2.7% | epoch: 1 | remaining: 261,095,424 tok    
+step 00004 (0.4%) | loss: 7.744627 | lrm: 1.00 | dt: 2623ms | tok/sec: 99,924 | mfu: 2.7% | epoch: 1 | remaining: 260,833,280 tok    
+step 00005 (0.5%) | loss: 7.399926 | lrm: 1.00 | dt: 2627ms | tok/sec: 99,791 | mfu: 2.7% | epoch: 1 | remaining: 260,571,136 tok    
+step 00006 (0.6%) | loss: 7.149402 | lrm: 1.00 | dt: 2631ms | tok/sec: 99,654 | mfu: 2.7% | epoch: 1 | remaining: 260,308,992 tok    
+step 00007 (0.7%) | loss: 6.945737 | lrm: 1.00 | dt: 2632ms | tok/sec: 99,584 | mfu: 2.7% | epoch: 1 | remaining: 260,046,848 tok    
+step 00008 (0.8%) | loss: 6.748826 | lrm: 1.00 | dt: 2628ms | tok/sec: 99,742 | mfu: 2.7% | epoch: 1 | remaining: 259,784,704 tok    
+step 00009 (0.9%) | loss: 6.590488 | lrm: 1.00 | dt: 2625ms | tok/sec: 99,871 | mfu: 2.7% | epoch: 1 | remaining: 259,522,560 tok    
+step 00010 (1.0%) | loss: 6.441679 | lrm: 1.00 | dt: 2661ms | tok/sec: 98,507 | mfu: 2.7% | epoch: 1 | remaining: 259,260,416 tok    
+  grads | backbone: 0.0137 | head: 0.1842 | survival: 0.0742 | head_effrank: 169.1 | rank_ratio: 0.330 | top10e: 35.2%
+step 00011 (1.1%) | loss: 6.331801 | lrm: 1.00 | dt: 2630ms | tok/sec: 99,687 | mfu: 2.7% | epoch: 1 | remaining: 258,998,272 tok    
+step 00012 (1.2%) | loss: 6.241286 | lrm: 1.00 | dt: 2636ms | tok/sec: 99,462 | mfu: 2.7% | epoch: 1 | remaining: 258,736,128 tok    
