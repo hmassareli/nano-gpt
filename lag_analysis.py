@@ -1,4 +1,5 @@
 """EXP vs Baseline lag analysis — interactive CLI."""
+import argparse
 import re
 import glob
 import os
@@ -104,7 +105,25 @@ def pick_option(prompt, options):
             pass
         print(f"  Escolha 1-{len(options)}")
 
+
+def build_parser():
+    parser = argparse.ArgumentParser(description="Interactive lag analysis for benchmark logs.")
+    parser.add_argument(
+        "--every",
+        type=int,
+        default=10,
+        help="Show sampled rows every N steps. Default: 10.",
+    )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Print a shorter report with fewer columns.",
+    )
+    return parser
+
 def main():
+    args = build_parser().parse_args()
+
     print("=" * 50)
     print("  LAG ANALYSIS — Experimento vs Baseline")
     print("=" * 50)
@@ -158,8 +177,15 @@ def main():
     print("=" * 80)
     # Each bar char = 1% of loss difference relative to baseline at that step
     WINDOW = 20  # steps for windowed drop comparison
-    print(f"{'Step':>5} | {'EXP Loss':>9} | {'BL Loss':>9} | {'Diff':>8} | {'Diff%':>6} | {'DrpΔ%':>6} | {'WinΔ%':>6} | {'Lag':>5} | Visual")
-    print("-" * 98)
+    sample_every = max(1, args.every)
+    if args.summary:
+        print(f"Sampling every {sample_every} steps (summary mode)")
+        print(f"{'Step':>5} | {'EXP Loss':>9} | {'BL Loss':>9} | {'Diff%':>6} | {'Lag':>5}")
+        print("-" * 47)
+    else:
+        print(f"Sampling every {sample_every} steps")
+        print(f"{'Step':>5} | {'EXP Loss':>9} | {'BL Loss':>9} | {'Diff':>8} | {'Diff%':>6} | {'DrpΔ%':>6} | {'WinΔ%':>6} | {'Lag':>5} | Visual")
+        print("-" * 98)
 
     # Initial losses for cumulative drop calculation
     exp_loss_0 = exp[exp_steps[0]]
@@ -205,8 +231,8 @@ def main():
                 if bl_win_drop > 0:
                     win_delta_pct = (exp_win_drop - bl_win_drop) / bl_win_drop * 100
 
-        # Show every 10 steps, plus first and last
-        if s != exp_steps[0] and s != exp_steps[-1] and s % 10 != 0:
+        # Show periodic samples, plus first and last
+        if s != exp_steps[0] and s != exp_steps[-1] and s % sample_every != 0:
             continue
 
         bl_str = f"{bl_at_s:>9.4f}" if bl_at_s is not None else f"{'—':>9}"
@@ -215,20 +241,23 @@ def main():
         drp_str = f"{drop_delta_pct:>+6.1f}" if drop_delta_pct is not None else f"{'—':>6}"
         win_str = f"{win_delta_pct:>+6.1f}" if win_delta_pct is not None else f"{'—':>6}"
 
-        if diff_pct is not None:
-            bar_len = int(round(abs(diff_pct)))
-            if bar_len == 0:
-                bar = "|"
-            elif diff_pct > 0:
-                bar = "+" * min(bar_len, 30)
-            else:
-                bar = "-" * min(bar_len, 30)
+        if args.summary:
+            print(f"{s:>5} | {el:>9.4f} | {bl_str} | {pct_str} | {lag:>+5.1f}")
         else:
-            bar = ""
+            if diff_pct is not None:
+                bar_len = int(round(abs(diff_pct)))
+                if bar_len == 0:
+                    bar = "|"
+                elif diff_pct > 0:
+                    bar = "+" * min(bar_len, 30)
+                else:
+                    bar = "-" * min(bar_len, 30)
+            else:
+                bar = ""
 
-        print(f"{s:>5} | {el:>9.4f} | {bl_str} | {diff_str} | {pct_str} | {drp_str} | {win_str} | {lag:>+5.1f} | {bar}")
+            print(f"{s:>5} | {el:>9.4f} | {bl_str} | {diff_str} | {pct_str} | {drp_str} | {win_str} | {lag:>+5.1f} | {bar}")
 
-    print("-" * 98)
+    print("-" * (47 if args.summary else 98))
 
     # ── Summary stats ──
     valid = [(s, d, p) for s, d, p in all_diffs if d is not None and s >= 10]
