@@ -36,6 +36,7 @@ STEPS = 50
 EVAL_MODE = "quick"
 COOLDOWN_SECONDS = 0
 train_files = []
+train_script_args = []
 
 for arg in sys.argv[1:]:
     if arg.startswith("--steps="):
@@ -48,6 +49,8 @@ for arg in sys.argv[1:]:
         EVAL_MODE = "none"
     elif arg == "--quick-eval":
         EVAL_MODE = "quick"
+    elif arg.startswith("--"):
+        train_script_args.append(arg)
     else:
         # Treat as train file (support glob)
         expanded = glob.glob(arg)
@@ -169,6 +172,7 @@ for i, cfg in enumerate(CONFIGS):
         "--device-batch-size=16",
         "--no-compile",
     ]
+    cmd.extend(train_script_args)
     if EVAL_MODE == "none":
         cmd.append("--no-eval")
     elif EVAL_MODE == "quick":
