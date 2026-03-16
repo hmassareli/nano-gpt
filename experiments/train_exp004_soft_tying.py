@@ -3,6 +3,7 @@ Autoresearch pretraining script. Single-GPU, single-file.
 Cherry-picked and simplified from nanochat.
 Usage: uv run train.py
 """
+EXP_TITLE = "EXP-004: Soft Weight Tying (head <-> wte)"
 
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -27,6 +28,11 @@ try:
     fa3 = get_kernel(repo).flash_attn_interface
 except Exception as exc:
     print(f"Warning: FlashAttention indisponivel ({exc}). Usando fallback de atencao nativo.")
+
+# Ensure root dir is on sys.path so `prepare` can be found when running from experiments/
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 

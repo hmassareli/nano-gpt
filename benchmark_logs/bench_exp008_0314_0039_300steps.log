@@ -1,0 +1,28 @@
+
+============================================================
+  BENCHMARK: 3 configs x 300 steps  (quick-eval)
+  Log: C:\Users\Henrique\studies\nano gpt\benchmark_logs\bench_20260314_003949_300steps.log
+============================================================
+
+------------------------------------------------------------
+  [1/3] EXP-008: Fast Multi-Head (Fused Proj Only)  (300 steps)
+------------------------------------------------------------
+
+Warning: FlashAttention indisponivel (Cannot install kernel from repo kernels-community/flash-attn3 (revision: main)). Usando fallback de atencao nativo.
+Vocab size: 8,192
+Model config: {'sequence_len': 512, 'vocab_size': 8192, 'n_layer': 12, 'n_head': 4, 'n_kv_head': 4, 'n_embd': 512, 'window_pattern': 'SSSL', 'compute_dtype': torch.bfloat16, 'num_output_heads': 3, 'output_head_dim': 160}
+Parameter counts:
+  wte                     : 4,194,304
+  value_embeds            : 25,165,824
+  lm_head                 : 4,177,920
+  transformer_matrices    : 37,749,504
+  scalars                 : 24
+  total                   : 71,287,576
+Estimated FLOPs per token: 2.680796e+08
+Scaling AdamW LRs by 1/sqrt(512/768) = 1.224745
+Time budget: 300s
+Gradient accumulation steps: 32
+Budget mode: tokens
+Token budget: 78,643,200
+Output heads: 3 x D_k=160
+step 00000 (0.0%) | loss: 9.010347 | lrm: 1.00 | dt: 39239ms | tok/sec: 6,680 | mfu: 0.2% | epoch: 1 | remaining: 78,381,056 tok    

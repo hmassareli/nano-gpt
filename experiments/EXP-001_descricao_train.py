@@ -28,6 +28,11 @@ try:
 except Exception as exc:
     print(f"Warning: FlashAttention indisponivel ({exc}). Usando fallback de atencao nativo.")
 
+# Ensure root dir is on sys.path so `prepare` can be found when running from experiments/
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 
 # ---------------------------------------------------------------------------

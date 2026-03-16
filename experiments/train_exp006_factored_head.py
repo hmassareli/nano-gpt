@@ -3,6 +3,8 @@ Autoresearch pretraining script. Single-GPU, single-file.
 Cherry-picked and simplified from nanochat.
 Usage: uv run train.py
 """
+EXP_TITLE = "EXP-006: Factored Head (512->482->8192) iso-param"
+FACTORED_HEAD_DIM = 482  # iso-parameter: 482*(512+8192) = 4,195,328 ≈ baseline 4,194,304
 
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -27,6 +29,11 @@ try:
     fa3 = get_kernel(repo).flash_attn_interface
 except Exception as exc:
     print(f"Warning: FlashAttention indisponivel ({exc}). Usando fallback de atencao nativo.")
+
+# Ensure root dir is on sys.path so `prepare` can be found when running from experiments/
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 
@@ -150,8 +157,8 @@ class GPT(nn.Module):
             "wte": nn.Embedding(config.vocab_size, config.n_embd),
             "h": nn.ModuleList([Block(config, i) for i in range(config.n_layer)]),
         })
-        self.lm_head_expand = nn.Linear(config.n_embd, config.n_embd * 4, bias=False)  # EXP-006: 512 -> 2048
-        self.lm_head = nn.Linear(config.n_embd * 4, config.vocab_size, bias=False)  # EXP-006: 2048 -> V
+        self.lm_head_expand = nn.Linear(config.n_embd, FACTORED_HEAD_DIM, bias=False)  # EXP-006: D -> H
+        self.lm_head = nn.Linear(FACTORED_HEAD_DIM, config.vocab_size, bias=False)  # EXP-006: H -> V
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
         # Value embeddings
@@ -312,9 +319,9 @@ class GPT(nn.Module):
 
     def forward_head(self, x, targets=None, reduction='mean'):
         softcap = 13
-        x = self.lm_head_expand(x)  # EXP-006: D -> 4D
-        x = F.gelu(x)               # EXP-006: nonlinearity in expanded space
-        logits = self.lm_head(x)     # EXP-006: 4D -> V
+        x = self.lm_head_expand(x)  # EXP-006: D -> H (482)
+        x = F.gelu(x)               # EXP-006: nonlinearity
+        logits = self.lm_head(x)     # EXP-006: H -> V
         logits = logits.float()
         logits = softcap * torch.tanh(logits / softcap)
 

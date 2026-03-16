@@ -48,11 +48,63 @@ for arg in sys.argv[1:]:
 if not train_files:
     train_files = ["train.py"]
 
+# Extract EXP_TITLE from a train script file
+TITLE_RE = re.compile(r'^EXP_TITLE\s*=\s*["\'](.+?)["\']', re.MULTILINE)
+EXP_ID_RE = re.compile(r'\bEXP-(\d{3})\b', re.IGNORECASE)
+def get_exp_title(filepath):
+    with open(filepath, encoding="utf-8") as fh:
+        head = fh.read(2048)
+    m = TITLE_RE.search(head)
+    return m.group(1) if m else os.path.splitext(os.path.basename(filepath))[0]
+
+def get_config_tag(name, title):
+    for candidate in (title, name):
+        m = EXP_ID_RE.search(candidate)
+        if m:
+            return f"exp{m.group(1)}"
+    lowered = title.lower()
+    if lowered == "baseline" or name == "train":
+        return "bl"
+    tag = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return tag[:24] or "run"
+
+def sort_config_tags(tags):
+    def sort_key(tag):
+        if tag.startswith("exp") and tag[3:].isdigit():
+            return (0, int(tag[3:]), tag)
+        if tag == "bl":
+            return (2, 0, tag)
+        return (1, 0, tag)
+    return sorted(tags, key=sort_key)
+
+def build_log_path(configs, steps):
+    tags = []
+    seen = set()
+    for cfg in configs:
+        tag = get_config_tag(cfg["name"], cfg["title"])
+        if tag not in seen:
+            tags.append(tag)
+            seen.add(tag)
+    tags = sort_config_tags(tags)
+    stamp = datetime.now().strftime("%m%d_%H%M")
+    filename = f"bench_{'_'.join(tags)}_{stamp}_{steps}steps.log"
+    path = os.path.join(LOGS_DIR, filename)
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(filename)
+    suffix = 2
+    while True:
+        candidate = os.path.join(LOGS_DIR, f"{stem}_{suffix}{ext}")
+        if not os.path.exists(candidate):
+            return candidate
+        suffix += 1
+
 # Build configs from file list
 CONFIGS = []
 for f in train_files:
     name = os.path.splitext(os.path.basename(f))[0]
-    CONFIGS.append({"name": name, "script": f})
+    title = get_exp_title(f)
+    CONFIGS.append({"name": name, "title": title, "script": f})
 
 BPB_RE = re.compile(r"val_bpb:\s+([\d.]+)")
 TOKENS_RE = re.compile(r"total_tokens_M:\s+([\d.]+)")
@@ -67,8 +119,7 @@ results = []
 eval_label = {"quick": "quick-eval", "full": "full-eval", "none": "sem eval"}[EVAL_MODE]
 
 # Log file com timestamp
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-log_path = os.path.join(LOGS_DIR, f"bench_{timestamp}_{STEPS}steps.log")
+log_path = build_log_path(CONFIGS, STEPS)
 log_file = open(log_path, "w", encoding="utf-8")
 
 def log(msg="", end="\n"):
@@ -85,7 +136,7 @@ log(f"{'='*60}")
 bench_start = time.time()
 
 for i, cfg in enumerate(CONFIGS):
-    label = cfg["name"]
+    label = cfg["title"]
     remaining = len(CONFIGS) - i
     if results:
         avg_time = (time.time() - bench_start) / len(results)
@@ -156,15 +207,21 @@ for i, cfg in enumerate(CONFIGS):
     if proc.returncode != 0:
         log(f"  *** FALHOU (exit code {proc.returncode}) ***")
 
+    # Cooldown between runs to avoid thermal throttling
+    if i < len(CONFIGS) - 1:
+        cooldown = 120  # seconds
+        log(f"\n  Cooldown: {cooldown}s para GPU esfriar...")
+        time.sleep(cooldown)
+
 # Summary table
 total_bench_time = time.time() - bench_start
 log(f"\n\n{'='*80}")
 log(f"  RESULTADOS  ({STEPS} steps, {eval_label}, total: {total_bench_time/60:.1f} min)")
 log(f"{'='*80}")
 if EVAL_MODE != "none":
-    header = f"{'Config':<22} {'val_bpb':>10} {'tokens_M':>10} {'VRAM_MB':>8} {'treino_s':>9} {'total_s':>8} {'exit':>5}"
+    header = f"{'Config':<42} {'val_bpb':>10} {'tokens_M':>10} {'VRAM_MB':>8} {'treino_s':>9} {'total_s':>8} {'exit':>5}"
 else:
-    header = f"{'Config':<22} {'tokens_M':>10} {'VRAM_MB':>8} {'treino_s':>9} {'total_s':>8} {'exit':>5}"
+    header = f"{'Config':<42} {'tokens_M':>10} {'VRAM_MB':>8} {'treino_s':>9} {'total_s':>8} {'exit':>5}"
 log(header)
 log("-" * len(header))
 for r in results:
@@ -174,9 +231,9 @@ for r in results:
     time_str = f"{r['time_s']:.1f}" if r['time_s'] is not None else "-"
     wall_str = f"{r['wall_s']:.0f}"
     if EVAL_MODE != "none":
-        log(f"{r['name']:<22} {bpb_str:>10} {tok_str:>10} {vram_str:>8} {time_str:>9} {wall_str:>8} {r['exit_code']:>5}")
+        log(f"{r['name']:<42} {bpb_str:>10} {tok_str:>10} {vram_str:>8} {time_str:>9} {wall_str:>8} {r['exit_code']:>5}")
     else:
-        log(f"{r['name']:<22} {tok_str:>10} {vram_str:>8} {time_str:>9} {wall_str:>8} {r['exit_code']:>5}")
+        log(f"{r['name']:<42} {tok_str:>10} {vram_str:>8} {time_str:>9} {wall_str:>8} {r['exit_code']:>5}")
 
 # Best result
 valid = [r for r in results if r['val_bpb'] is not None]
@@ -199,7 +256,7 @@ if complete:
     log(f"\n{'='*80}")
     log(f"  METRICAS DE CONVERGENCIA")
     log(f"{'='*80}")
-    header2 = f"{'Config':<22} {'loss_i':>8} {'loss_f':>8} {'drop':>8} {'drop/min':>10} {'avg_tok/s':>10} {'loss/Mtok':>10}"
+    header2 = f"{'Config':<42} {'loss_i':>8} {'loss_f':>8} {'drop':>8} {'drop/min':>10} {'avg_tok/s':>10} {'loss/Mtok':>10}"
     log(header2)
     log("-" * len(header2))
     for r in complete:
@@ -212,14 +269,14 @@ if complete:
         avg_tok_sec = sum(s['tok_sec'] for s in sd) / len(sd)
         tokens_M = r['tokens_M'] or 0
         loss_per_Mtok = loss_drop / tokens_M if tokens_M > 0 else 0
-        log(f"{r['name']:<22} {loss_initial:>8.3f} {loss_final:>8.3f} {loss_drop:>8.3f} {drop_per_min:>10.4f} {avg_tok_sec:>10.0f} {loss_per_Mtok:>10.4f}")
+        log(f"{r['name']:<42} {loss_initial:>8.3f} {loss_final:>8.3f} {loss_drop:>8.3f} {drop_per_min:>10.4f} {avg_tok_sec:>10.0f} {loss_per_Mtok:>10.4f}")
 
     # Loss at common milestones
     milestones = [5, 10, 25, 50, 100]
     active_milestones = [m for m in milestones if m <= STEPS]
     if len(complete) > 1 and active_milestones:
         log(f"\n  Loss por step (comparacao direta):")
-        ms_header = f"  {'Step':>6}" + "".join(f" {r['name']:>20}" for r in complete)
+        ms_header = f"  {'Step':>6}" + "".join(f" {r['name']:>30}" for r in complete)
         log(ms_header)
         log("  " + "-" * (len(ms_header) - 2))
         for ms in active_milestones:
@@ -228,15 +285,15 @@ if complete:
                 sd = r['step_data']
                 match = [s for s in sd if s['step'] == ms]
                 if match:
-                    row += f" {match[0]['loss']:>20.4f}"
+                    row += f" {match[0]['loss']:>30.4f}"
                 else:
-                    row += f" {'—':>20}"
+                    row += f" {'—':>30}"
             log(row)
 
     # Elapsed time at milestones
     if len(complete) > 1 and active_milestones:
         log(f"\n  Tempo acumulado por step (s):")
-        ms_header = f"  {'Step':>6}" + "".join(f" {r['name']:>20}" for r in complete)
+        ms_header = f"  {'Step':>6}" + "".join(f" {r['name']:>30}" for r in complete)
         log(ms_header)
         log("  " + "-" * (len(ms_header) - 2))
         for ms in active_milestones:
@@ -246,9 +303,9 @@ if complete:
                 steps_up_to = [s for s in sd if s['step'] <= ms]
                 if steps_up_to:
                     elapsed = sum(s['dt_ms'] for s in steps_up_to) / 1000
-                    row += f" {elapsed:>20.1f}"
+                    row += f" {elapsed:>30.1f}"
                 else:
-                    row += f" {'—':>20}"
+                    row += f" {'—':>30}"
             log(row)
 
 log_file.close()

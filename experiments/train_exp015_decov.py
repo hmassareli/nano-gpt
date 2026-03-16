@@ -3,7 +3,7 @@ Autoresearch pretraining script. Single-GPU, single-file.
 Cherry-picked and simplified from nanochat.
 Usage: uv run train.py
 """
-EXP_TITLE = "EXP-005: Contrastive Auxiliary Loss"
+EXP_TITLE = "EXP-015: 4-Head + DeCov Regularization (4x D->128->GELU->V)"
 
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -14,6 +14,8 @@ import time
 import sys
 import inspect
 from dataclasses import dataclass, asdict
+import sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from grad_metrics import compute_grad_metrics
 
 import torch
 import torch.nn as nn
@@ -50,6 +52,9 @@ class GPTConfig:
     n_embd: int = 768
     window_pattern: str = "SSSL"
     compute_dtype: torch.dtype = torch.bfloat16
+    # EXP-007: Multi-head output config
+    num_output_heads: int = 4
+    output_head_dim: int = 128  # D_k per subhead (max rank = 4*128 = 512 = D)
 
 
 def norm(x):
@@ -147,6 +152,17 @@ class Block(nn.Module):
         return x
 
 
+# EXP-007: Single output subhead: D -> D_k -> V with GELU
+class OutputSubhead(nn.Module):
+    def __init__(self, n_embd, d_k, vocab_size):
+        super().__init__()
+        self.proj = nn.Linear(n_embd, d_k, bias=False)
+        self.out = nn.Linear(d_k, vocab_size, bias=False)
+
+    def forward(self, x):
+        return self.out(F.gelu(self.proj(x)))
+
+
 class GPT(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -156,7 +172,11 @@ class GPT(nn.Module):
             "wte": nn.Embedding(config.vocab_size, config.n_embd),
             "h": nn.ModuleList([Block(config, i) for i in range(config.n_layer)]),
         })
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        # EXP-007: Replace single lm_head with multiple output subheads
+        self.output_heads = nn.ModuleList([
+            OutputSubhead(config.n_embd, config.output_head_dim, config.vocab_size)
+            for _ in range(config.num_output_heads)
+        ])
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
         # Value embeddings
@@ -174,11 +194,14 @@ class GPT(nn.Module):
 
     @torch.no_grad()
     def init_weights(self):
-        # Embedding and unembedding
+        # Embedding
         torch.nn.init.normal_(self.transformer.wte.weight, mean=0.0, std=1.0)
-        torch.nn.init.normal_(self.lm_head.weight, mean=0.0, std=0.001)
-        # Transformer blocks
+        # EXP-007: Initialize each output subhead
         n_embd = self.config.n_embd
+        for head in self.output_heads:
+            torch.nn.init.normal_(head.proj.weight, mean=0.0, std=(n_embd ** -0.5))
+            torch.nn.init.normal_(head.out.weight, mean=0.0, std=0.001)
+        # Transformer blocks
         s = 3 * 0.5 * (n_embd ** -0.5)
         for block in self.transformer.h:
             torch.nn.init.uniform_(block.attn.c_q.weight, -s, s)
@@ -250,7 +273,8 @@ class GPT(nn.Module):
     def num_scaling_params(self):
         wte = sum(p.numel() for p in self.transformer.wte.parameters())
         value_embeds = sum(p.numel() for p in self.value_embeds.parameters())
-        lm_head = sum(p.numel() for p in self.lm_head.parameters())
+        # EXP-007: count all output head params
+        lm_head = sum(p.numel() for p in self.output_heads.parameters())
         transformer_matrices = sum(p.numel() for p in self.transformer.h.parameters())
         scalars = self.resid_lambdas.numel() + self.x0_lambdas.numel()
         total = wte + value_embeds + lm_head + transformer_matrices + scalars
@@ -265,12 +289,13 @@ class GPT(nn.Module):
         matrix_params = list(self.transformer.h.parameters())
         value_embeds_params = list(self.value_embeds.parameters())
         embedding_params = list(self.transformer.wte.parameters())
-        lm_head_params = list(self.lm_head.parameters())
+        # EXP-007: all output head params get unembedding LR
+        lm_head_params = list(self.output_heads.parameters())
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
         assert len(list(self.parameters())) == (len(matrix_params) + len(embedding_params) +
             len(lm_head_params) + len(value_embeds_params) + len(resid_params) + len(x0_params))
-        # Scale LR â 1/âdmodel (tuned at 768 dim)
+        # Scale LR proportional to 1/sqrt(dmodel) (tuned at 768 dim)
         dmodel_lr_scale = (model_dim / 768) ** -0.5
         print(f"Scaling AdamW LRs by 1/sqrt({model_dim}/768) = {dmodel_lr_scale:.6f}")
         param_groups = [
@@ -291,7 +316,7 @@ class GPT(nn.Module):
             group["initial_lr"] = group["lr"]
         return optimizer
 
-    def forward_backbone(self, idx):
+    def forward(self, idx, targets=None, reduction='mean'):
         B, T = idx.size()
         assert T <= self.cos.size(1)
         cos_sin = self.cos[:, :T], self.sin[:, :T]
@@ -299,37 +324,33 @@ class GPT(nn.Module):
         x = self.transformer.wte(idx)
         x = norm(x)
         x0 = x
-        x_prev2 = x
-        x_prev1 = x
         for i, block in enumerate(self.transformer.h):
             x = self.resid_lambdas[i] * x + self.x0_lambdas[i] * x0
-            if i >= 2:
-                x = x + 0.1 * x_prev2
-            x_prev2 = x_prev1
-            x_prev1 = x
             ve = self.value_embeds[str(i)](idx) if str(i) in self.value_embeds else None
             x = block(x, ve, cos_sin, self.window_sizes[i])
         x = norm(x)
-        return x
 
-    def forward_head(self, x, targets=None, reduction='mean'):
-        softcap = 13
-        logits = self.lm_head(x)
+        # EXP-015: Sum logits from all output subheads + DeCov regularization
+        softcap = 15
+        head_outputs = [head(x) for head in self.output_heads]  # list of (B, T, V)
+        logits = sum(head_outputs)
         logits = logits.float()
         logits = softcap * torch.tanh(logits / softcap)
 
         if targets is not None:
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1),
                                    ignore_index=-1, reduction=reduction)
+            # DeCov: penalize cross-covariance of head intermediate representations
+            # Use proj activations (after GELU) as features for each head
+            head_acts = [F.gelu(h.proj(x)).mean(dim=(0, 1)) for h in self.output_heads]  # list of (D_k,)
+            H = torch.stack(head_acts, dim=0)  # (n_heads, D_k)
+            H = H - H.mean(dim=0, keepdim=True)
+            C = (H @ H.T) / (H.shape[1] + 1e-10)  # (n_heads, n_heads)
+            # Penalize off-diagonal: total covariance minus diagonal
+            decov_loss = (C.pow(2).sum() - C.diag().pow(2).sum()) / max(len(self.output_heads) * (len(self.output_heads) - 1), 1)
+            loss = loss + DECOV_LAMBDA * decov_loss
             return loss
         return logits
-
-    def forward(self, idx, targets=None, reduction='mean'):
-        x = self.forward_backbone(idx)
-        loss = self.forward_head(x, targets, reduction)
-        if targets is not None and reduction == 'mean':
-            return loss, x  # training needs hidden states for contrastive loss
-        return loss
 
 # ---------------------------------------------------------------------------
 # Optimizer (MuonAdamW, single GPU only)
@@ -477,7 +498,7 @@ WINDOW_PATTERN = "SSSL"    # sliding window pattern: all short (last always forc
 # Optimization
 TOTAL_BATCH_SIZE = 2**18 # ~262K tokens per optimizer step
 EMBEDDING_LR = 1.0      # learning rate for token embeddings (Adam)
-UNEMBEDDING_LR = 0.008  # learning rate for lm_head (Adam)
+UNEMBEDDING_LR = 0.008  # learning rate for output heads (Adam)
 MATRIX_LR = 0.04        # learning rate for matrix parameters (Muon)
 SCALAR_LR = 1.0         # learning rate for per-layer scalars (Adam)
 WEIGHT_DECAY = 0.2      # cautious weight decay for Muon
@@ -489,7 +510,6 @@ TRAIN_BUDGET_MODE = "time"  # options: time, tokens
 TOKEN_BUDGET = 10_000_000
 SKIP_EVAL = False
 QUICK_EVAL = False
-TWO_STAGE_HEAD_UPDATE = False
 
 # Model size
 DEPTH = 12              # number of transformer layers
@@ -497,7 +517,12 @@ DEVICE_BATCH_SIZE = 128  # per-device batch size (reduce if OOM)
 SEQ_LEN_OVERRIDE = 0      # 0 = usar MAX_SEQ_LEN
 USE_TORCH_COMPILE = True
 
-# CLI overrides (ex: uv run train.py --steps=100 --two-stage-head-update --quick-eval)
+# EXP-015 specific
+NUM_OUTPUT_HEADS = 4
+OUTPUT_HEAD_DIM = 128    # D_k per subhead (max rank: 4*128=512=D, params: 4*128*8704=4,456,448)
+DECOV_LAMBDA = 0.1       # weight for DeCov regularization
+
+# CLI overrides (ex: uv run train.py --steps=100 --quick-eval)
 for arg in sys.argv[1:]:
     if arg.startswith("--steps="):
         _steps = int(arg.split("=", 1)[1])
@@ -507,8 +532,6 @@ for arg in sys.argv[1:]:
         SKIP_EVAL = True
     elif arg == "--quick-eval":
         QUICK_EVAL = True
-    elif arg == "--two-stage-head-update":
-        TWO_STAGE_HEAD_UPDATE = True
     elif arg.startswith("--device-batch-size="):
         DEVICE_BATCH_SIZE = int(arg.split("=", 1)[1])
     elif arg.startswith("--seq-len="):
@@ -543,6 +566,8 @@ def build_model_config(depth):
         n_layer=depth, n_head=num_heads, n_kv_head=num_heads, n_embd=model_dim,
         window_pattern=WINDOW_PATTERN,
         compute_dtype=AMP_DTYPE,
+        num_output_heads=NUM_OUTPUT_HEADS,
+        output_head_dim=OUTPUT_HEAD_DIM,
     )
 
 config = build_model_config(DEPTH)
@@ -580,17 +605,12 @@ if USE_TORCH_COMPILE:
 train_loader = make_dataloader(tokenizer, DEVICE_BATCH_SIZE, config.sequence_len, "train")
 x, y, epoch = next(train_loader)  # prefetch first batch
 
-# Pre-allocate micro-batch storage for two-stage (avoids repeated allocation)
-if TWO_STAGE_HEAD_UPDATE:
-    mb_x = torch.empty(grad_accum_steps, *x.shape, dtype=x.dtype, device=x.device)
-    mb_y = torch.empty(grad_accum_steps, *y.shape, dtype=y.dtype, device=y.device)
-
 print(f"Time budget: {TIME_BUDGET}s")
 print(f"Gradient accumulation steps: {grad_accum_steps}")
 print(f"Budget mode: {TRAIN_BUDGET_MODE}")
 if TRAIN_BUDGET_MODE == "tokens":
     print(f"Token budget: {TOKEN_BUDGET:,}")
-print(f"Two-stage head update: {TWO_STAGE_HEAD_UPDATE}")
+print(f"Output heads: {NUM_OUTPUT_HEADS} x D_k={OUTPUT_HEAD_DIM}")
 
 # Schedules (all based on progress = training_time / TIME_BUDGET)
 
@@ -620,10 +640,6 @@ total_training_time = 0
 processed_tokens = 0
 step = 0
 
-head_params = list(model.lm_head.parameters())
-head_param_ids = {id(p) for p in head_params}
-non_head_params = [p for p in model.parameters() if id(p) not in head_param_ids]
-
 while True:
     torch.cuda.synchronize()
     t0 = time.time()
@@ -645,90 +661,18 @@ while True:
             group["momentum"] = muon_momentum
             group["weight_decay"] = muon_weight_decay
 
-    if TWO_STAGE_HEAD_UPDATE:
-        # Stage 1: backbone under no_grad (no activations stored), only head gets grads.
-        for p in non_head_params:
-            p.requires_grad_(False)
-        for micro_step in range(grad_accum_steps):
-            mb_x[micro_step].copy_(x)
-            mb_y[micro_step].copy_(y)
-            with autocast_ctx:
-                with torch.no_grad():
-                    hidden = model.forward_backbone(x)
-                loss = model.forward_head(hidden, y)
-            train_loss = loss.detach()
-            (loss / grad_accum_steps).backward()
-            x, y, epoch = next(train_loader)
-        for p in non_head_params:
-            p.requires_grad_(True)
+    for micro_step in range(grad_accum_steps):
+        with autocast_ctx:
+            loss = model(x, y)
+        train_loss = loss.detach()
+        (loss / grad_accum_steps).backward()
+        x, y, epoch = next(train_loader)
 
-        # Step only lm_head group (index 0)
-        with torch.no_grad():
-            optimizer._step_adamw(optimizer.param_groups[0])
-        model.zero_grad(set_to_none=True)
+    # Gradient metrics (before optimizer modifies grads)
+    grad_info = compute_grad_metrics(model, multi_head=True) if step % 10 == 0 else None
 
-        # Stage 2: full forward with updated head, backbone gets grads.
-        for p in head_params:
-            p.requires_grad_(False)
-        for micro_step in range(grad_accum_steps):
-            with autocast_ctx:
-                loss = model(mb_x[micro_step], mb_y[micro_step])
-            train_loss = loss.detach()
-            (loss / grad_accum_steps).backward()
-        for p in head_params:
-            p.requires_grad_(True)
-
-        # Step only backbone groups (index 1+)
-        with torch.no_grad():
-            for group in optimizer.param_groups[1:]:
-                if group['kind'] == 'adamw':
-                    optimizer._step_adamw(group)
-                elif group['kind'] == 'muon':
-                    optimizer._step_muon(group)
-        model.zero_grad(set_to_none=True)
-    else:
-        for micro_step in range(grad_accum_steps):
-            with autocast_ctx:
-                loss, hiddens = model(x, y)
-            train_loss = loss.detach()
-            # EXP-005: Contrastive auxiliary loss — bypass head bottleneck
-            # Pull hiddens of same-target tokens closer, push different apart
-            CONTRASTIVE_LAMBDA = 0.1
-            CONTRASTIVE_SAMPLE = 256  # subsample tokens for memory efficiency
-            with autocast_ctx:
-                BT = hiddens.view(-1, hiddens.size(-1)).shape[0]
-                D = hiddens.size(-1)
-                # Subsample tokens to keep similarity matrix manageable
-                if BT > CONTRASTIVE_SAMPLE:
-                    perm = torch.randperm(BT, device=hiddens.device)[:CONTRASTIVE_SAMPLE]
-                    h_sub = hiddens.reshape(-1, D)[perm]
-                    targets_sub = y.view(-1)[perm]
-                else:
-                    h_sub = hiddens.reshape(-1, D)
-                    targets_sub = y.view(-1)
-                h_norm = F.normalize(h_sub, dim=-1)  # (S, D)
-                sim = h_norm @ h_norm.T  # (S, S)
-                # Mask: same target token = positive pair
-                mask = (targets_sub.unsqueeze(0) == targets_sub.unsqueeze(1)).float()
-                mask.fill_diagonal_(0)  # exclude self
-                # InfoNCE-style: log(sum_pos / sum_all)
-                temperature = 0.1
-                exp_sim = torch.exp(sim / temperature)
-                pos_sum = (exp_sim * mask).sum(dim=1)
-                all_sum = exp_sim.sum(dim=1) - exp_sim.diagonal()
-                # Only compute where there are positive pairs
-                valid = pos_sum > 0
-                if valid.any():
-                    contrastive = -torch.log(pos_sum[valid] / all_sum[valid].clamp(min=1e-8)).mean()
-                    aux_loss = CONTRASTIVE_LAMBDA * contrastive / grad_accum_steps
-                else:
-                    aux_loss = torch.tensor(0.0, device=loss.device)
-            # Single backward — gradients flow through BOTH main CE loss AND contrastive
-            ((loss / grad_accum_steps) + aux_loss).backward()
-            x, y, epoch = next(train_loader)
-
-        optimizer.step()
-        model.zero_grad(set_to_none=True)
+    optimizer.step()
+    model.zero_grad(set_to_none=True)
 
     train_loss_f = train_loss.item()
 
@@ -760,6 +704,8 @@ while True:
         remaining_str = f"{remaining:.0f}s"
 
     print(f"step {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining_str}    ", flush=True)
+    if grad_info is not None:
+        print(grad_info["log_line"], flush=True)
 
     # GC management (Python's GC causes ~500ms stalls)
     if step == 0:

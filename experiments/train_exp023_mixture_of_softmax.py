@@ -3,7 +3,7 @@ Autoresearch pretraining script. Single-GPU, single-file.
 Cherry-picked and simplified from nanochat.
 Usage: uv run train.py
 """
-EXP_TITLE = "EXP-005: Contrastive Auxiliary Loss"
+EXP_TITLE = "EXP-023: Mixture of Softmax (4 components)"
 
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -14,6 +14,8 @@ import time
 import sys
 import inspect
 from dataclasses import dataclass, asdict
+import sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from grad_metrics import compute_grad_metrics
 
 import torch
 import torch.nn as nn
@@ -28,11 +30,6 @@ try:
     fa3 = get_kernel(repo).flash_attn_interface
 except Exception as exc:
     print(f"Warning: FlashAttention indisponivel ({exc}). Usando fallback de atencao nativo.")
-
-# Ensure root dir is on sys.path so `prepare` can be found when running from experiments/
-_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _root not in sys.path:
-    sys.path.insert(0, _root)
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 
@@ -157,6 +154,12 @@ class GPT(nn.Module):
             "h": nn.ModuleList([Block(config, i) for i in range(config.n_layer)]),
         })
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        # EXP-023: MoS - multiple heads + gating for mixture of softmax
+        self.mos_heads = nn.ModuleList([
+            nn.Linear(config.n_embd, config.vocab_size, bias=False)
+            for _ in range(MOS_K)
+        ])
+        self.mos_gate = nn.Linear(config.n_embd, MOS_K, bias=False)
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
         # Value embeddings
@@ -177,6 +180,10 @@ class GPT(nn.Module):
         # Embedding and unembedding
         torch.nn.init.normal_(self.transformer.wte.weight, mean=0.0, std=1.0)
         torch.nn.init.normal_(self.lm_head.weight, mean=0.0, std=0.001)
+        # EXP-023: init MoS heads and gate
+        for head in self.mos_heads:
+            torch.nn.init.normal_(head.weight, mean=0.0, std=0.001)
+        torch.nn.init.zeros_(self.mos_gate.weight)
         # Transformer blocks
         n_embd = self.config.n_embd
         s = 3 * 0.5 * (n_embd ** -0.5)
@@ -250,7 +257,9 @@ class GPT(nn.Module):
     def num_scaling_params(self):
         wte = sum(p.numel() for p in self.transformer.wte.parameters())
         value_embeds = sum(p.numel() for p in self.value_embeds.parameters())
-        lm_head = sum(p.numel() for p in self.lm_head.parameters())
+        lm_head = (sum(p.numel() for p in self.lm_head.parameters()) +
+                   sum(p.numel() for p in self.mos_heads.parameters()) +
+                   sum(p.numel() for p in self.mos_gate.parameters()))
         transformer_matrices = sum(p.numel() for p in self.transformer.h.parameters())
         scalars = self.resid_lambdas.numel() + self.x0_lambdas.numel()
         total = wte + value_embeds + lm_head + transformer_matrices + scalars
@@ -265,7 +274,7 @@ class GPT(nn.Module):
         matrix_params = list(self.transformer.h.parameters())
         value_embeds_params = list(self.value_embeds.parameters())
         embedding_params = list(self.transformer.wte.parameters())
-        lm_head_params = list(self.lm_head.parameters())
+        lm_head_params = list(self.lm_head.parameters()) + list(self.mos_heads.parameters()) + list(self.mos_gate.parameters())
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
         assert len(list(self.parameters())) == (len(matrix_params) + len(embedding_params) +
@@ -314,22 +323,32 @@ class GPT(nn.Module):
 
     def forward_head(self, x, targets=None, reduction='mean'):
         softcap = 13
-        logits = self.lm_head(x)
-        logits = logits.float()
-        logits = softcap * torch.tanh(logits / softcap)
+        # EXP-023: Mixture of Softmax
+        # Each head produces separate logits -> softmax -> weighted mixture
+        gate_logits = self.mos_gate(x)  # (B, T, K)
+        pi = F.softmax(gate_logits, dim=-1)  # (B, T, K)
+
+        # Compute mixture of softmax distributions
+        mix_probs = None
+        for i, head in enumerate(self.mos_heads):
+            head_logits = head(x).float()
+            head_logits = softcap * torch.tanh(head_logits / softcap)
+            head_probs = F.softmax(head_logits, dim=-1)  # (B, T, V)
+            weighted = pi[:, :, i:i+1] * head_probs  # (B, T, V)
+            mix_probs = weighted if mix_probs is None else mix_probs + weighted
 
         if targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1),
-                                   ignore_index=-1, reduction=reduction)
+            # NLL from mixture probabilities
+            log_probs = torch.log(mix_probs + 1e-10)
+            loss = F.nll_loss(log_probs.view(-1, log_probs.size(-1)), targets.view(-1),
+                              ignore_index=-1, reduction=reduction)
             return loss
-        return logits
+        # For eval, return log probs as logits
+        return torch.log(mix_probs + 1e-10)
 
     def forward(self, idx, targets=None, reduction='mean'):
         x = self.forward_backbone(idx)
-        loss = self.forward_head(x, targets, reduction)
-        if targets is not None and reduction == 'mean':
-            return loss, x  # training needs hidden states for contrastive loss
-        return loss
+        return self.forward_head(x, targets, reduction)
 
 # ---------------------------------------------------------------------------
 # Optimizer (MuonAdamW, single GPU only)
@@ -489,7 +508,9 @@ TRAIN_BUDGET_MODE = "time"  # options: time, tokens
 TOKEN_BUDGET = 10_000_000
 SKIP_EVAL = False
 QUICK_EVAL = False
-TWO_STAGE_HEAD_UPDATE = False
+
+# EXP-023 specific
+MOS_K = 4                # number of softmax mixture components
 
 # Model size
 DEPTH = 12              # number of transformer layers
@@ -497,7 +518,7 @@ DEVICE_BATCH_SIZE = 128  # per-device batch size (reduce if OOM)
 SEQ_LEN_OVERRIDE = 0      # 0 = usar MAX_SEQ_LEN
 USE_TORCH_COMPILE = True
 
-# CLI overrides (ex: uv run train.py --steps=100 --two-stage-head-update --quick-eval)
+# CLI overrides (ex: uv run train.py --steps=100 --quick-eval)
 for arg in sys.argv[1:]:
     if arg.startswith("--steps="):
         _steps = int(arg.split("=", 1)[1])
@@ -507,8 +528,6 @@ for arg in sys.argv[1:]:
         SKIP_EVAL = True
     elif arg == "--quick-eval":
         QUICK_EVAL = True
-    elif arg == "--two-stage-head-update":
-        TWO_STAGE_HEAD_UPDATE = True
     elif arg.startswith("--device-batch-size="):
         DEVICE_BATCH_SIZE = int(arg.split("=", 1)[1])
     elif arg.startswith("--seq-len="):
@@ -580,17 +599,11 @@ if USE_TORCH_COMPILE:
 train_loader = make_dataloader(tokenizer, DEVICE_BATCH_SIZE, config.sequence_len, "train")
 x, y, epoch = next(train_loader)  # prefetch first batch
 
-# Pre-allocate micro-batch storage for two-stage (avoids repeated allocation)
-if TWO_STAGE_HEAD_UPDATE:
-    mb_x = torch.empty(grad_accum_steps, *x.shape, dtype=x.dtype, device=x.device)
-    mb_y = torch.empty(grad_accum_steps, *y.shape, dtype=y.dtype, device=y.device)
-
 print(f"Time budget: {TIME_BUDGET}s")
 print(f"Gradient accumulation steps: {grad_accum_steps}")
 print(f"Budget mode: {TRAIN_BUDGET_MODE}")
 if TRAIN_BUDGET_MODE == "tokens":
     print(f"Token budget: {TOKEN_BUDGET:,}")
-print(f"Two-stage head update: {TWO_STAGE_HEAD_UPDATE}")
 
 # Schedules (all based on progress = training_time / TIME_BUDGET)
 
@@ -620,10 +633,6 @@ total_training_time = 0
 processed_tokens = 0
 step = 0
 
-head_params = list(model.lm_head.parameters())
-head_param_ids = {id(p) for p in head_params}
-non_head_params = [p for p in model.parameters() if id(p) not in head_param_ids]
-
 while True:
     torch.cuda.synchronize()
     t0 = time.time()
@@ -645,90 +654,18 @@ while True:
             group["momentum"] = muon_momentum
             group["weight_decay"] = muon_weight_decay
 
-    if TWO_STAGE_HEAD_UPDATE:
-        # Stage 1: backbone under no_grad (no activations stored), only head gets grads.
-        for p in non_head_params:
-            p.requires_grad_(False)
-        for micro_step in range(grad_accum_steps):
-            mb_x[micro_step].copy_(x)
-            mb_y[micro_step].copy_(y)
-            with autocast_ctx:
-                with torch.no_grad():
-                    hidden = model.forward_backbone(x)
-                loss = model.forward_head(hidden, y)
-            train_loss = loss.detach()
-            (loss / grad_accum_steps).backward()
-            x, y, epoch = next(train_loader)
-        for p in non_head_params:
-            p.requires_grad_(True)
+    for micro_step in range(grad_accum_steps):
+        with autocast_ctx:
+            loss = model(x, y)
+        train_loss = loss.detach()
+        (loss / grad_accum_steps).backward()
+        x, y, epoch = next(train_loader)
 
-        # Step only lm_head group (index 0)
-        with torch.no_grad():
-            optimizer._step_adamw(optimizer.param_groups[0])
-        model.zero_grad(set_to_none=True)
+    # Gradient metrics (before optimizer modifies grads)
+    grad_info = compute_grad_metrics(model) if step % 10 == 0 else None
 
-        # Stage 2: full forward with updated head, backbone gets grads.
-        for p in head_params:
-            p.requires_grad_(False)
-        for micro_step in range(grad_accum_steps):
-            with autocast_ctx:
-                loss = model(mb_x[micro_step], mb_y[micro_step])
-            train_loss = loss.detach()
-            (loss / grad_accum_steps).backward()
-        for p in head_params:
-            p.requires_grad_(True)
-
-        # Step only backbone groups (index 1+)
-        with torch.no_grad():
-            for group in optimizer.param_groups[1:]:
-                if group['kind'] == 'adamw':
-                    optimizer._step_adamw(group)
-                elif group['kind'] == 'muon':
-                    optimizer._step_muon(group)
-        model.zero_grad(set_to_none=True)
-    else:
-        for micro_step in range(grad_accum_steps):
-            with autocast_ctx:
-                loss, hiddens = model(x, y)
-            train_loss = loss.detach()
-            # EXP-005: Contrastive auxiliary loss — bypass head bottleneck
-            # Pull hiddens of same-target tokens closer, push different apart
-            CONTRASTIVE_LAMBDA = 0.1
-            CONTRASTIVE_SAMPLE = 256  # subsample tokens for memory efficiency
-            with autocast_ctx:
-                BT = hiddens.view(-1, hiddens.size(-1)).shape[0]
-                D = hiddens.size(-1)
-                # Subsample tokens to keep similarity matrix manageable
-                if BT > CONTRASTIVE_SAMPLE:
-                    perm = torch.randperm(BT, device=hiddens.device)[:CONTRASTIVE_SAMPLE]
-                    h_sub = hiddens.reshape(-1, D)[perm]
-                    targets_sub = y.view(-1)[perm]
-                else:
-                    h_sub = hiddens.reshape(-1, D)
-                    targets_sub = y.view(-1)
-                h_norm = F.normalize(h_sub, dim=-1)  # (S, D)
-                sim = h_norm @ h_norm.T  # (S, S)
-                # Mask: same target token = positive pair
-                mask = (targets_sub.unsqueeze(0) == targets_sub.unsqueeze(1)).float()
-                mask.fill_diagonal_(0)  # exclude self
-                # InfoNCE-style: log(sum_pos / sum_all)
-                temperature = 0.1
-                exp_sim = torch.exp(sim / temperature)
-                pos_sum = (exp_sim * mask).sum(dim=1)
-                all_sum = exp_sim.sum(dim=1) - exp_sim.diagonal()
-                # Only compute where there are positive pairs
-                valid = pos_sum > 0
-                if valid.any():
-                    contrastive = -torch.log(pos_sum[valid] / all_sum[valid].clamp(min=1e-8)).mean()
-                    aux_loss = CONTRASTIVE_LAMBDA * contrastive / grad_accum_steps
-                else:
-                    aux_loss = torch.tensor(0.0, device=loss.device)
-            # Single backward — gradients flow through BOTH main CE loss AND contrastive
-            ((loss / grad_accum_steps) + aux_loss).backward()
-            x, y, epoch = next(train_loader)
-
-        optimizer.step()
-        model.zero_grad(set_to_none=True)
+    optimizer.step()
+    model.zero_grad(set_to_none=True)
 
     train_loss_f = train_loss.item()
 
@@ -760,6 +697,8 @@ while True:
         remaining_str = f"{remaining:.0f}s"
 
     print(f"step {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining_str}    ", flush=True)
+    if grad_info is not None:
+        print(grad_info["log_line"], flush=True)
 
     # GC management (Python's GC causes ~500ms stalls)
     if step == 0:

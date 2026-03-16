@@ -3,6 +3,7 @@ Autoresearch pretraining script. Single-GPU, single-file.
 Cherry-picked and simplified from nanochat.
 Usage: uv run train.py
 """
+EXP_TITLE = "Baseline"
 
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -13,6 +14,7 @@ import time
 import sys
 import inspect
 from dataclasses import dataclass, asdict
+from grad_metrics import compute_grad_metrics
 
 import torch
 import torch.nn as nn
@@ -480,7 +482,6 @@ TRAIN_BUDGET_MODE = "time"  # options: time, tokens
 TOKEN_BUDGET = 10_000_000
 SKIP_EVAL = False
 QUICK_EVAL = False
-TWO_STAGE_HEAD_UPDATE = False
 
 # Model size
 DEPTH = 12              # number of transformer layers
@@ -488,7 +489,7 @@ DEVICE_BATCH_SIZE = 128  # per-device batch size (reduce if OOM)
 SEQ_LEN_OVERRIDE = 0      # 0 = usar MAX_SEQ_LEN
 USE_TORCH_COMPILE = True
 
-# CLI overrides (ex: uv run train.py --steps=100 --two-stage-head-update --quick-eval)
+# CLI overrides (ex: uv run train.py --steps=100 --quick-eval)
 for arg in sys.argv[1:]:
     if arg.startswith("--steps="):
         _steps = int(arg.split("=", 1)[1])
@@ -498,8 +499,6 @@ for arg in sys.argv[1:]:
         SKIP_EVAL = True
     elif arg == "--quick-eval":
         QUICK_EVAL = True
-    elif arg == "--two-stage-head-update":
-        TWO_STAGE_HEAD_UPDATE = True
     elif arg.startswith("--device-batch-size="):
         DEVICE_BATCH_SIZE = int(arg.split("=", 1)[1])
     elif arg.startswith("--seq-len="):
@@ -571,17 +570,11 @@ if USE_TORCH_COMPILE:
 train_loader = make_dataloader(tokenizer, DEVICE_BATCH_SIZE, config.sequence_len, "train")
 x, y, epoch = next(train_loader)  # prefetch first batch
 
-# Pre-allocate micro-batch storage for two-stage (avoids repeated allocation)
-if TWO_STAGE_HEAD_UPDATE:
-    mb_x = torch.empty(grad_accum_steps, *x.shape, dtype=x.dtype, device=x.device)
-    mb_y = torch.empty(grad_accum_steps, *y.shape, dtype=y.dtype, device=y.device)
-
 print(f"Time budget: {TIME_BUDGET}s")
 print(f"Gradient accumulation steps: {grad_accum_steps}")
 print(f"Budget mode: {TRAIN_BUDGET_MODE}")
 if TRAIN_BUDGET_MODE == "tokens":
     print(f"Token budget: {TOKEN_BUDGET:,}")
-print(f"Two-stage head update: {TWO_STAGE_HEAD_UPDATE}")
 
 # Schedules (all based on progress = training_time / TIME_BUDGET)
 
@@ -611,10 +604,6 @@ total_training_time = 0
 processed_tokens = 0
 step = 0
 
-head_params = list(model.lm_head.parameters())
-head_param_ids = {id(p) for p in head_params}
-non_head_params = [p for p in model.parameters() if id(p) not in head_param_ids]
-
 while True:
     torch.cuda.synchronize()
     t0 = time.time()
@@ -636,57 +625,18 @@ while True:
             group["momentum"] = muon_momentum
             group["weight_decay"] = muon_weight_decay
 
-    if TWO_STAGE_HEAD_UPDATE:
-        # Stage 1: backbone under no_grad (no activations stored), only head gets grads.
-        for p in non_head_params:
-            p.requires_grad_(False)
-        for micro_step in range(grad_accum_steps):
-            mb_x[micro_step].copy_(x)
-            mb_y[micro_step].copy_(y)
-            with autocast_ctx:
-                with torch.no_grad():
-                    hidden = model.forward_backbone(x)
-                loss = model.forward_head(hidden, y)
-            train_loss = loss.detach()
-            (loss / grad_accum_steps).backward()
-            x, y, epoch = next(train_loader)
-        for p in non_head_params:
-            p.requires_grad_(True)
+    for micro_step in range(grad_accum_steps):
+        with autocast_ctx:
+            loss = model(x, y)
+        train_loss = loss.detach()
+        (loss / grad_accum_steps).backward()
+        x, y, epoch = next(train_loader)
 
-        # Step only lm_head group (index 0)
-        with torch.no_grad():
-            optimizer._step_adamw(optimizer.param_groups[0])
-        model.zero_grad(set_to_none=True)
+    # Gradient metrics (before optimizer modifies grads)
+    grad_info = compute_grad_metrics(model) if step % 10 == 0 else None
 
-        # Stage 2: full forward with updated head, backbone gets grads.
-        for p in head_params:
-            p.requires_grad_(False)
-        for micro_step in range(grad_accum_steps):
-            with autocast_ctx:
-                loss = model(mb_x[micro_step], mb_y[micro_step])
-            train_loss = loss.detach()
-            (loss / grad_accum_steps).backward()
-        for p in head_params:
-            p.requires_grad_(True)
-
-        # Step only backbone groups (index 1+)
-        with torch.no_grad():
-            for group in optimizer.param_groups[1:]:
-                if group['kind'] == 'adamw':
-                    optimizer._step_adamw(group)
-                elif group['kind'] == 'muon':
-                    optimizer._step_muon(group)
-        model.zero_grad(set_to_none=True)
-    else:
-        for micro_step in range(grad_accum_steps):
-            with autocast_ctx:
-                loss = model(x, y)
-            train_loss = loss.detach()
-            (loss / grad_accum_steps).backward()
-            x, y, epoch = next(train_loader)
-
-        optimizer.step()
-        model.zero_grad(set_to_none=True)
+    optimizer.step()
+    model.zero_grad(set_to_none=True)
 
     train_loss_f = train_loss.item()
 
@@ -718,6 +668,8 @@ while True:
         remaining_str = f"{remaining:.0f}s"
 
     print(f"step {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining_str}    ", flush=True)
+    if grad_info is not None:
+        print(grad_info["log_line"], flush=True)
 
     # GC management (Python's GC causes ~500ms stalls)
     if step == 0:

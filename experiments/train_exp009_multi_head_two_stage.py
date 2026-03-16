@@ -3,7 +3,7 @@ Autoresearch pretraining script. Single-GPU, single-file.
 Cherry-picked and simplified from nanochat.
 Usage: uv run train.py
 """
-EXP_TITLE = "EXP-005: Contrastive Auxiliary Loss"
+EXP_TITLE = "EXP-009: Multi-Head + Two-Stage (Fused 3-Head w/ Head Dropout + Two-Stage Update)"
 
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -50,6 +50,9 @@ class GPTConfig:
     n_embd: int = 768
     window_pattern: str = "SSSL"
     compute_dtype: torch.dtype = torch.bfloat16
+    # EXP-007: Multi-head output config
+    num_output_heads: int = 3
+    output_head_dim: int = 160  # D_k per subhead (iso-parameter with baseline)
 
 
 def norm(x):
@@ -147,6 +150,30 @@ class Block(nn.Module):
         return x
 
 
+# EXP-008: Fused multi-head output with optional head dropout
+class FusedMultiHead(nn.Module):
+    """All head projections fused into a single matmul D -> N*D_k.
+    Output matmuls remain separate but support head dropout."""
+    def __init__(self, n_embd, d_k, vocab_size, num_heads):
+        super().__init__()
+        self.num_heads = num_heads
+        self.d_k = d_k
+        # Fused projection: single matmul instead of N separate ones
+        self.proj = nn.Linear(n_embd, num_heads * d_k, bias=False)
+        self.out = nn.ModuleList([nn.Linear(d_k, vocab_size, bias=False) for _ in range(num_heads)])
+
+    def forward(self, x, head_drop_mask=None):
+        h = F.gelu(self.proj(x))  # (B, T, N*D_k) - single fused matmul
+        chunks = h.chunk(self.num_heads, dim=-1)
+        if head_drop_mask is not None:
+            active = [i for i in range(self.num_heads) if head_drop_mask[i] > 0]
+            if not active:
+                active = [0]
+            scale = self.num_heads / len(active)
+            return sum(self.out[i](chunks[i]) for i in active) * scale
+        return sum(self.out[i](c) for i, c in enumerate(chunks))
+
+
 class GPT(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -156,7 +183,10 @@ class GPT(nn.Module):
             "wte": nn.Embedding(config.vocab_size, config.n_embd),
             "h": nn.ModuleList([Block(config, i) for i in range(config.n_layer)]),
         })
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        # EXP-008: Fused multi-head output
+        self.multi_head = FusedMultiHead(
+            config.n_embd, config.output_head_dim, config.vocab_size, config.num_output_heads
+        )
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
         # Value embeddings
@@ -174,11 +204,14 @@ class GPT(nn.Module):
 
     @torch.no_grad()
     def init_weights(self):
-        # Embedding and unembedding
+        # Embedding
         torch.nn.init.normal_(self.transformer.wte.weight, mean=0.0, std=1.0)
-        torch.nn.init.normal_(self.lm_head.weight, mean=0.0, std=0.001)
-        # Transformer blocks
+        # EXP-008: Initialize fused multi-head
         n_embd = self.config.n_embd
+        torch.nn.init.normal_(self.multi_head.proj.weight, mean=0.0, std=(n_embd ** -0.5))
+        for out_layer in self.multi_head.out:
+            torch.nn.init.normal_(out_layer.weight, mean=0.0, std=0.001)
+        # Transformer blocks
         s = 3 * 0.5 * (n_embd ** -0.5)
         for block in self.transformer.h:
             torch.nn.init.uniform_(block.attn.c_q.weight, -s, s)
@@ -250,7 +283,8 @@ class GPT(nn.Module):
     def num_scaling_params(self):
         wte = sum(p.numel() for p in self.transformer.wte.parameters())
         value_embeds = sum(p.numel() for p in self.value_embeds.parameters())
-        lm_head = sum(p.numel() for p in self.lm_head.parameters())
+        # EXP-008: count all fused multi-head params
+        lm_head = sum(p.numel() for p in self.multi_head.parameters())
         transformer_matrices = sum(p.numel() for p in self.transformer.h.parameters())
         scalars = self.resid_lambdas.numel() + self.x0_lambdas.numel()
         total = wte + value_embeds + lm_head + transformer_matrices + scalars
@@ -265,12 +299,13 @@ class GPT(nn.Module):
         matrix_params = list(self.transformer.h.parameters())
         value_embeds_params = list(self.value_embeds.parameters())
         embedding_params = list(self.transformer.wte.parameters())
-        lm_head_params = list(self.lm_head.parameters())
+        # EXP-008: all fused multi-head params get unembedding LR
+        lm_head_params = list(self.multi_head.parameters())
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
         assert len(list(self.parameters())) == (len(matrix_params) + len(embedding_params) +
             len(lm_head_params) + len(value_embeds_params) + len(resid_params) + len(x0_params))
-        # Scale LR â 1/âdmodel (tuned at 768 dim)
+        # Scale LR proportional to 1/sqrt(dmodel) (tuned at 768 dim)
         dmodel_lr_scale = (model_dim / 768) ** -0.5
         print(f"Scaling AdamW LRs by 1/sqrt({model_dim}/768) = {dmodel_lr_scale:.6f}")
         param_groups = [
@@ -292,6 +327,7 @@ class GPT(nn.Module):
         return optimizer
 
     def forward_backbone(self, idx):
+        """Backbone only: embedding -> blocks -> norm."""
         B, T = idx.size()
         assert T <= self.cos.size(1)
         cos_sin = self.cos[:, :T], self.sin[:, :T]
@@ -299,22 +335,17 @@ class GPT(nn.Module):
         x = self.transformer.wte(idx)
         x = norm(x)
         x0 = x
-        x_prev2 = x
-        x_prev1 = x
         for i, block in enumerate(self.transformer.h):
             x = self.resid_lambdas[i] * x + self.x0_lambdas[i] * x0
-            if i >= 2:
-                x = x + 0.1 * x_prev2
-            x_prev2 = x_prev1
-            x_prev1 = x
             ve = self.value_embeds[str(i)](idx) if str(i) in self.value_embeds else None
             x = block(x, ve, cos_sin, self.window_sizes[i])
         x = norm(x)
         return x
 
-    def forward_head(self, x, targets=None, reduction='mean'):
-        softcap = 13
-        logits = self.lm_head(x)
+    def forward_head(self, x, targets=None, reduction='mean', head_drop_mask=None):
+        """Head only: hidden states -> logits -> loss."""
+        softcap = 15
+        logits = self.multi_head(x, head_drop_mask=head_drop_mask)
         logits = logits.float()
         logits = softcap * torch.tanh(logits / softcap)
 
@@ -324,12 +355,9 @@ class GPT(nn.Module):
             return loss
         return logits
 
-    def forward(self, idx, targets=None, reduction='mean'):
+    def forward(self, idx, targets=None, reduction='mean', head_drop_mask=None):
         x = self.forward_backbone(idx)
-        loss = self.forward_head(x, targets, reduction)
-        if targets is not None and reduction == 'mean':
-            return loss, x  # training needs hidden states for contrastive loss
-        return loss
+        return self.forward_head(x, targets, reduction, head_drop_mask=head_drop_mask)
 
 # ---------------------------------------------------------------------------
 # Optimizer (MuonAdamW, single GPU only)
@@ -477,7 +505,7 @@ WINDOW_PATTERN = "SSSL"    # sliding window pattern: all short (last always forc
 # Optimization
 TOTAL_BATCH_SIZE = 2**18 # ~262K tokens per optimizer step
 EMBEDDING_LR = 1.0      # learning rate for token embeddings (Adam)
-UNEMBEDDING_LR = 0.008  # learning rate for lm_head (Adam)
+UNEMBEDDING_LR = 0.008  # learning rate for output heads (Adam)
 MATRIX_LR = 0.04        # learning rate for matrix parameters (Muon)
 SCALAR_LR = 1.0         # learning rate for per-layer scalars (Adam)
 WEIGHT_DECAY = 0.2      # cautious weight decay for Muon
@@ -489,15 +517,19 @@ TRAIN_BUDGET_MODE = "time"  # options: time, tokens
 TOKEN_BUDGET = 10_000_000
 SKIP_EVAL = False
 QUICK_EVAL = False
-TWO_STAGE_HEAD_UPDATE = False
-
 # Model size
 DEPTH = 12              # number of transformer layers
 DEVICE_BATCH_SIZE = 128  # per-device batch size (reduce if OOM)
 SEQ_LEN_OVERRIDE = 0      # 0 = usar MAX_SEQ_LEN
 USE_TORCH_COMPILE = True
 
-# CLI overrides (ex: uv run train.py --steps=100 --two-stage-head-update --quick-eval)
+# EXP-009 specific
+NUM_OUTPUT_HEADS = 3
+OUTPUT_HEAD_DIM = 160
+HEAD_DROP_PROB = 1/3
+TWO_STAGE_HEAD_UPDATE = True
+
+# CLI overrides (ex: uv run train.py --steps=100 --quick-eval)
 for arg in sys.argv[1:]:
     if arg.startswith("--steps="):
         _steps = int(arg.split("=", 1)[1])
@@ -507,14 +539,20 @@ for arg in sys.argv[1:]:
         SKIP_EVAL = True
     elif arg == "--quick-eval":
         QUICK_EVAL = True
-    elif arg == "--two-stage-head-update":
-        TWO_STAGE_HEAD_UPDATE = True
     elif arg.startswith("--device-batch-size="):
         DEVICE_BATCH_SIZE = int(arg.split("=", 1)[1])
     elif arg.startswith("--seq-len="):
         SEQ_LEN_OVERRIDE = int(arg.split("=", 1)[1])
     elif arg == "--no-compile":
         USE_TORCH_COMPILE = False
+    elif arg.startswith("--head-drop-prob="):
+        HEAD_DROP_PROB = float(arg.split("=", 1)[1])
+    elif arg == "--no-head-drop":
+        HEAD_DROP_PROB = 0.0
+    elif arg == "--two-stage-head-update":
+        TWO_STAGE_HEAD_UPDATE = True
+    elif arg == "--no-two-stage":
+        TWO_STAGE_HEAD_UPDATE = False
 
 # ---------------------------------------------------------------------------
 # Setup: tokenizer, model, optimizer, dataloader
@@ -543,6 +581,8 @@ def build_model_config(depth):
         n_layer=depth, n_head=num_heads, n_kv_head=num_heads, n_embd=model_dim,
         window_pattern=WINDOW_PATTERN,
         compute_dtype=AMP_DTYPE,
+        num_output_heads=NUM_OUTPUT_HEADS,
+        output_head_dim=OUTPUT_HEAD_DIM,
     )
 
 config = build_model_config(DEPTH)
@@ -580,16 +620,13 @@ if USE_TORCH_COMPILE:
 train_loader = make_dataloader(tokenizer, DEVICE_BATCH_SIZE, config.sequence_len, "train")
 x, y, epoch = next(train_loader)  # prefetch first batch
 
-# Pre-allocate micro-batch storage for two-stage (avoids repeated allocation)
-if TWO_STAGE_HEAD_UPDATE:
-    mb_x = torch.empty(grad_accum_steps, *x.shape, dtype=x.dtype, device=x.device)
-    mb_y = torch.empty(grad_accum_steps, *y.shape, dtype=y.dtype, device=y.device)
-
 print(f"Time budget: {TIME_BUDGET}s")
 print(f"Gradient accumulation steps: {grad_accum_steps}")
 print(f"Budget mode: {TRAIN_BUDGET_MODE}")
 if TRAIN_BUDGET_MODE == "tokens":
     print(f"Token budget: {TOKEN_BUDGET:,}")
+print(f"Output heads: {NUM_OUTPUT_HEADS} x D_k={OUTPUT_HEAD_DIM}")
+print(f"Head dropout prob: {HEAD_DROP_PROB}")
 print(f"Two-stage head update: {TWO_STAGE_HEAD_UPDATE}")
 
 # Schedules (all based on progress = training_time / TIME_BUDGET)
@@ -620,9 +657,14 @@ total_training_time = 0
 processed_tokens = 0
 step = 0
 
-head_params = list(model.lm_head.parameters())
+# Two-stage setup
+head_params = list(model.multi_head.parameters())
 head_param_ids = {id(p) for p in head_params}
 non_head_params = [p for p in model.parameters() if id(p) not in head_param_ids]
+
+if TWO_STAGE_HEAD_UPDATE:
+    mb_x = torch.empty(grad_accum_steps, *x.shape, dtype=x.dtype, device=x.device)
+    mb_y = torch.empty(grad_accum_steps, *y.shape, dtype=y.dtype, device=y.device)
 
 while True:
     torch.cuda.synchronize()
@@ -645,8 +687,15 @@ while True:
             group["momentum"] = muon_momentum
             group["weight_decay"] = muon_weight_decay
 
+    # Generate head dropout mask
+    head_mask = None
+    if HEAD_DROP_PROB > 0:
+        head_mask = (torch.rand(NUM_OUTPUT_HEADS, device=device) >= HEAD_DROP_PROB).float()
+        if head_mask.sum() == 0:
+            head_mask[torch.randint(NUM_OUTPUT_HEADS, (1,)).item()] = 1.0
+
     if TWO_STAGE_HEAD_UPDATE:
-        # Stage 1: backbone under no_grad (no activations stored), only head gets grads.
+        # Stage 1: backbone frozen (no_grad), only heads get gradients
         for p in non_head_params:
             p.requires_grad_(False)
         for micro_step in range(grad_accum_steps):
@@ -655,24 +704,24 @@ while True:
             with autocast_ctx:
                 with torch.no_grad():
                     hidden = model.forward_backbone(x)
-                loss = model.forward_head(hidden, y)
+                loss = model.forward_head(hidden, y, head_drop_mask=head_mask)
             train_loss = loss.detach()
             (loss / grad_accum_steps).backward()
             x, y, epoch = next(train_loader)
         for p in non_head_params:
             p.requires_grad_(True)
 
-        # Step only lm_head group (index 0)
+        # Step only head group (index 0)
         with torch.no_grad():
             optimizer._step_adamw(optimizer.param_groups[0])
         model.zero_grad(set_to_none=True)
 
-        # Stage 2: full forward with updated head, backbone gets grads.
+        # Stage 2: heads frozen, backbone gets gradients with updated heads
         for p in head_params:
             p.requires_grad_(False)
         for micro_step in range(grad_accum_steps):
             with autocast_ctx:
-                loss = model(mb_x[micro_step], mb_y[micro_step])
+                loss = model(mb_x[micro_step], mb_y[micro_step], head_drop_mask=head_mask)
             train_loss = loss.detach()
             (loss / grad_accum_steps).backward()
         for p in head_params:
@@ -689,42 +738,9 @@ while True:
     else:
         for micro_step in range(grad_accum_steps):
             with autocast_ctx:
-                loss, hiddens = model(x, y)
+                loss = model(x, y, head_drop_mask=head_mask)
             train_loss = loss.detach()
-            # EXP-005: Contrastive auxiliary loss — bypass head bottleneck
-            # Pull hiddens of same-target tokens closer, push different apart
-            CONTRASTIVE_LAMBDA = 0.1
-            CONTRASTIVE_SAMPLE = 256  # subsample tokens for memory efficiency
-            with autocast_ctx:
-                BT = hiddens.view(-1, hiddens.size(-1)).shape[0]
-                D = hiddens.size(-1)
-                # Subsample tokens to keep similarity matrix manageable
-                if BT > CONTRASTIVE_SAMPLE:
-                    perm = torch.randperm(BT, device=hiddens.device)[:CONTRASTIVE_SAMPLE]
-                    h_sub = hiddens.reshape(-1, D)[perm]
-                    targets_sub = y.view(-1)[perm]
-                else:
-                    h_sub = hiddens.reshape(-1, D)
-                    targets_sub = y.view(-1)
-                h_norm = F.normalize(h_sub, dim=-1)  # (S, D)
-                sim = h_norm @ h_norm.T  # (S, S)
-                # Mask: same target token = positive pair
-                mask = (targets_sub.unsqueeze(0) == targets_sub.unsqueeze(1)).float()
-                mask.fill_diagonal_(0)  # exclude self
-                # InfoNCE-style: log(sum_pos / sum_all)
-                temperature = 0.1
-                exp_sim = torch.exp(sim / temperature)
-                pos_sum = (exp_sim * mask).sum(dim=1)
-                all_sum = exp_sim.sum(dim=1) - exp_sim.diagonal()
-                # Only compute where there are positive pairs
-                valid = pos_sum > 0
-                if valid.any():
-                    contrastive = -torch.log(pos_sum[valid] / all_sum[valid].clamp(min=1e-8)).mean()
-                    aux_loss = CONTRASTIVE_LAMBDA * contrastive / grad_accum_steps
-                else:
-                    aux_loss = torch.tensor(0.0, device=loss.device)
-            # Single backward — gradients flow through BOTH main CE loss AND contrastive
-            ((loss / grad_accum_steps) + aux_loss).backward()
+            (loss / grad_accum_steps).backward()
             x, y, epoch = next(train_loader)
 
         optimizer.step()
