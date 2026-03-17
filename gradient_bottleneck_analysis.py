@@ -96,7 +96,7 @@ def cosine_similarity_matrices(A, B):
     return (a @ b / (a.norm() * b.norm() + 1e-10)).item()
 
 
-def analyze_baseline(device, tokenizer, train_steps=0):
+def analyze_baseline(device, tokenizer, train_steps=0, n_embd=512):
     print("\n" + "=" * 70)
     print("  BASELINE: Single LM Head (D -> V)")
     print("=" * 70)
@@ -109,9 +109,13 @@ def analyze_baseline(device, tokenizer, train_steps=0):
     torch.cuda.manual_seed(42)
 
     V = tokenizer.get_vocab_size()
+    if n_embd % 128 != 0:
+        raise ValueError(f"n_embd must be a multiple of 128, got {n_embd}")
+    n_head = n_embd // 128
+
     config = BaseConfig(
         sequence_len=512, vocab_size=V,
-        n_layer=12, n_head=4, n_kv_head=4, n_embd=512,
+        n_layer=12, n_head=n_head, n_kv_head=n_head, n_embd=n_embd,
         window_pattern="SSSL", compute_dtype=torch.bfloat16,
     )
 
@@ -397,16 +401,22 @@ def main():
     parser.add_argument("--exp007", action="store_true")
     parser.add_argument("--steps", type=int, default=0,
                         help="Train N steps before measuring (0 = init only)")
+    parser.add_argument("--tokenizer-dir", type=str, default=None,
+                        help="Tokenizer directory override for vocab sweep experiments")
+    parser.add_argument("--n-embd", type=int, default=512,
+                        help="Hidden dimension D for baseline analysis (multiple of 128)")
     args = parser.parse_args()
 
     device = torch.device("cuda")
     torch.set_float32_matmul_precision("high")
-    tokenizer = Tokenizer.from_directory()
+    tokenizer = Tokenizer.from_directory(args.tokenizer_dir)
     V = tokenizer.get_vocab_size()
 
     print("=" * 70)
     print(f"  Gradient Bottleneck Analysis")
+    print(f"  Tokenizer dir: {getattr(tokenizer, 'source_dir', '(default)')}")
     print(f"  Vocab size: {V:,}, Train steps before measure: {args.steps}")
+    print(f"  Baseline D: {args.n_embd}")
     print("=" * 70)
 
     run_bl = not args.exp007 or args.baseline
@@ -417,7 +427,7 @@ def main():
     bl_survival = bl_rank = exp_survival = exp_rank = None
 
     if run_bl:
-        bl_survival, bl_rank = analyze_baseline(device, tokenizer, args.steps)
+        bl_survival, bl_rank = analyze_baseline(device, tokenizer, args.steps, args.n_embd)
     if run_exp:
         exp_survival, exp_rank = analyze_exp007(device, tokenizer, args.steps)
 
@@ -426,7 +436,7 @@ def main():
         print("  COMPARISON")
         print("=" * 70)
         print(f"  Backbone grad norm — BL: {bl_survival:.6f}, EXP: {exp_survival:.6f}")
-        print(f"  Backbone eff rank  — BL: {bl_rank:.1f}/{512}, EXP: {exp_rank:.1f}/{512}")
+        print(f"  Backbone eff rank  — BL: {bl_rank:.1f}/{args.n_embd}, EXP: {exp_rank:.1f}/512")
         print()
         print("  Interpretation:")
         print("  - If EXP eff_rank < BL eff_rank -> multi-head bottleneck is worse")
@@ -434,8 +444,8 @@ def main():
         print("  - If Jacobian eff_rank << D -> gradient can't explore full space")
 
     print("\n" + "=" * 70)
-    print(f"  Paper: D={512}, V={V} -> V/D={V / 512:.0f}")
-    print(f"  Baseline: rank(J^T) <= {512}")
+    print(f"  Structural regime: D={args.n_embd}, V={V} -> V/D={V / args.n_embd:.1f}")
+    print(f"  Baseline: rank(J^T) <= {args.n_embd}")
     print(f"  EXP-007:  rank(sum J_k^T) <= min(3*160, 512) = {min(480, 512)}")
     print(f"  => Multi-head reduces gradient capacity by ~6% even best case")
     print(f"  => If heads collapse, effective rank drops to ~160 (69% reduction)")

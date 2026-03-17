@@ -15,6 +15,7 @@ import time
 import math
 import argparse
 import pickle
+import json
 from multiprocessing import Pool
 
 import requests
@@ -38,6 +39,7 @@ EVAL_TOKENS = 40 * 524288  # number of tokens for val eval
 CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "autoresearch")
 DATA_DIR = os.path.join(CACHE_DIR, "data")
 TOKENIZER_DIR = os.path.join(CACHE_DIR, "tokenizer")
+TOKENIZER_DIR_ENV = "AUTORESEARCH_TOKENIZER_DIR"
 BASE_URL = "https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resolve/main"
 MAX_SHARD = 6542 # the last datashard is shard_06542.parquet
 VAL_SHARD = MAX_SHARD  # pinned validation shard (shard_06542)
@@ -49,6 +51,10 @@ SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,2}| 
 
 SPECIAL_TOKENS = [f"<|reserved_{i}|>" for i in range(4)]
 BOS_TOKEN = "<|reserved_0|>"
+
+
+def resolve_tokenizer_dir(tokenizer_dir=None):
+    return tokenizer_dir or os.environ.get(TOKENIZER_DIR_ENV) or TOKENIZER_DIR
 
 # ---------------------------------------------------------------------------
 # Data download
@@ -138,28 +144,35 @@ def text_iterator(max_chars=1_000_000_000, doc_cap=10_000):
                     return
 
 
-def train_tokenizer():
+def train_tokenizer(vocab_size=VOCAB_SIZE, tokenizer_dir=None, force=False):
     """Train BPE tokenizer using rustbpe, save as tiktoken pickle."""
-    tokenizer_pkl = os.path.join(TOKENIZER_DIR, "tokenizer.pkl")
-    token_bytes_path = os.path.join(TOKENIZER_DIR, "token_bytes.pt")
+    tokenizer_dir = resolve_tokenizer_dir(tokenizer_dir)
+    tokenizer_pkl = os.path.join(tokenizer_dir, "tokenizer.pkl")
+    token_bytes_path = os.path.join(tokenizer_dir, "token_bytes.pt")
+    meta_path = os.path.join(tokenizer_dir, "meta.json")
 
-    if os.path.exists(tokenizer_pkl) and os.path.exists(token_bytes_path):
-        print(f"Tokenizer: already trained at {TOKENIZER_DIR}")
+    if os.path.exists(tokenizer_pkl) and os.path.exists(token_bytes_path) and not force:
+        print(f"Tokenizer: already trained at {tokenizer_dir}")
         return
 
-    os.makedirs(TOKENIZER_DIR, exist_ok=True)
+    os.makedirs(tokenizer_dir, exist_ok=True)
 
     parquet_files = list_parquet_files()
     if len(parquet_files) < 2:
         print("Tokenizer: need at least 2 data shards (1 train + 1 val). Download more data first.")
         sys.exit(1)
 
+    if vocab_size <= len(SPECIAL_TOKENS):
+        raise ValueError(
+            f"vocab_size must be > number of special tokens ({len(SPECIAL_TOKENS)}), got {vocab_size}"
+        )
+
     # --- Train with rustbpe ---
-    print("Tokenizer: training BPE tokenizer...")
+    print(f"Tokenizer: training BPE tokenizer (vocab_size={vocab_size})...")
     t0 = time.time()
 
     tokenizer = rustbpe.Tokenizer()
-    vocab_size_no_special = VOCAB_SIZE - len(SPECIAL_TOKENS)
+    vocab_size_no_special = vocab_size - len(SPECIAL_TOKENS)
     tokenizer.train_from_iterator(text_iterator(), vocab_size_no_special, pattern=SPLIT_PATTERN)
 
     # Build tiktoken encoding from trained merges
@@ -177,6 +190,12 @@ def train_tokenizer():
     # Save tokenizer
     with open(tokenizer_pkl, "wb") as f:
         pickle.dump(enc, f)
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "vocab_size": enc.n_vocab,
+            "requested_vocab_size": vocab_size,
+            "tokenizer_dir": tokenizer_dir,
+        }, f, indent=2)
 
     t1 = time.time()
     print(f"Tokenizer: trained in {t1 - t0:.1f}s, saved to {tokenizer_pkl}")
@@ -214,10 +233,13 @@ class Tokenizer:
         self.bos_token_id = enc.encode_single_token(BOS_TOKEN)
 
     @classmethod
-    def from_directory(cls, tokenizer_dir=TOKENIZER_DIR):
+    def from_directory(cls, tokenizer_dir=None):
+        tokenizer_dir = resolve_tokenizer_dir(tokenizer_dir)
         with open(os.path.join(tokenizer_dir, "tokenizer.pkl"), "rb") as f:
             enc = pickle.load(f)
-        return cls(enc)
+        instance = cls(enc)
+        instance.source_dir = tokenizer_dir
+        return instance
 
     def get_vocab_size(self):
         return self.enc.n_vocab
@@ -245,8 +267,8 @@ class Tokenizer:
         return self.enc.decode(ids)
 
 
-def get_token_bytes(device="cpu"):
-    path = os.path.join(TOKENIZER_DIR, "token_bytes.pt")
+def get_token_bytes(device="cpu", tokenizer_dir=None):
+    path = os.path.join(resolve_tokenizer_dir(tokenizer_dir), "token_bytes.pt")
     with open(path, "rb") as f:
         return torch.load(f, map_location=device)
 
@@ -349,7 +371,7 @@ def evaluate_bpb(model, tokenizer, batch_size):
     are excluded from both sums.
     Uses fixed MAX_SEQ_LEN so results are comparable across configs.
     """
-    token_bytes = get_token_bytes(device="cuda")
+    token_bytes = get_token_bytes(device="cuda", tokenizer_dir=getattr(tokenizer, "source_dir", None))
     val_loader = make_dataloader(tokenizer, batch_size, MAX_SEQ_LEN, "val")
     steps = EVAL_TOKENS // (batch_size * MAX_SEQ_LEN)
     total_nats = 0.0
@@ -372,11 +394,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Prepare data and tokenizer for autoresearch")
     parser.add_argument("--num-shards", type=int, default=10, help="Number of training shards to download (-1 = all). Val shard is always pinned.")
     parser.add_argument("--download-workers", type=int, default=8, help="Number of parallel download workers")
+    parser.add_argument("--vocab-size", type=int, default=VOCAB_SIZE, help="Tokenizer vocab size to train")
+    parser.add_argument("--tokenizer-dir", type=str, default=None, help="Output directory for this tokenizer variant")
+    parser.add_argument("--force-tokenizer", action="store_true", help="Retrain tokenizer even if files already exist")
     args = parser.parse_args()
 
     num_shards = MAX_SHARD if args.num_shards == -1 else args.num_shards
 
     print(f"Cache directory: {CACHE_DIR}")
+    print(f"Tokenizer directory: {resolve_tokenizer_dir(args.tokenizer_dir)}")
     print()
 
     # Step 1: Download data
@@ -384,6 +410,6 @@ if __name__ == "__main__":
     print()
 
     # Step 2: Train tokenizer
-    train_tokenizer()
+    train_tokenizer(vocab_size=args.vocab_size, tokenizer_dir=args.tokenizer_dir, force=args.force_tokenizer)
     print()
     print("Done! Ready to train.")
