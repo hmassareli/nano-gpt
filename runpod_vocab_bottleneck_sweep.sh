@@ -13,6 +13,7 @@ fi
 STEPS="${1:-300}"
 ANALYSIS_STEPS="${ANALYSIS_STEPS:-0}"
 DEVICE_BATCH_SIZE="${DEVICE_BATCH_SIZE:-16}"
+EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-4}"
 SEQ_LEN="${SEQ_LEN:-512}"
 NUM_SHARDS="${NUM_SHARDS:-10}"
 VOCABS=("${@:2}")
@@ -22,7 +23,7 @@ if [[ ${#VOCABS[@]} -eq 0 ]]; then
 fi
 
 echo "Running vocab bottleneck sweep"
-echo "train_steps=${STEPS} analysis_steps=${ANALYSIS_STEPS} batch=${DEVICE_BATCH_SIZE} seq_len=${SEQ_LEN}"
+echo "train_steps=${STEPS} analysis_steps=${ANALYSIS_STEPS} batch=${DEVICE_BATCH_SIZE} eval_batch=${EVAL_BATCH_SIZE} seq_len=${SEQ_LEN}"
 echo "vocabs=${VOCABS[*]}"
 
 for vocab in "${VOCABS[@]}"; do
@@ -53,5 +54,6 @@ for vocab in "${VOCABS[@]}"; do
       --steps="${STEPS}" \
       --quick-eval \
       --device-batch-size="${DEVICE_BATCH_SIZE}" \
+      --eval-batch-size="${EVAL_BATCH_SIZE}" \
       --seq-len="${SEQ_LEN}"
 done
