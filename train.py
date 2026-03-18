@@ -486,6 +486,7 @@ QUICK_EVAL = False
 # Model size
 DEPTH = 12              # number of transformer layers
 DEVICE_BATCH_SIZE = 128  # per-device batch size (reduce if OOM)
+EVAL_BATCH_SIZE = 0      # 0 = reuse DEVICE_BATCH_SIZE
 SEQ_LEN_OVERRIDE = 0      # 0 = usar MAX_SEQ_LEN
 USE_TORCH_COMPILE = True
 N_EMBD_OVERRIDE = 0
@@ -502,6 +503,8 @@ for arg in sys.argv[1:]:
         QUICK_EVAL = True
     elif arg.startswith("--device-batch-size="):
         DEVICE_BATCH_SIZE = int(arg.split("=", 1)[1])
+    elif arg.startswith("--eval-batch-size="):
+        EVAL_BATCH_SIZE = int(arg.split("=", 1)[1])
     elif arg.startswith("--seq-len="):
         SEQ_LEN_OVERRIDE = int(arg.split("=", 1)[1])
     elif arg.startswith("--n-embd="):
@@ -581,6 +584,7 @@ x, y, epoch = next(train_loader)  # prefetch first batch
 print(f"Time budget: {TIME_BUDGET}s")
 print(f"Gradient accumulation steps: {grad_accum_steps}")
 print(f"Budget mode: {TRAIN_BUDGET_MODE}")
+print(f"Eval batch size: {EVAL_BATCH_SIZE if EVAL_BATCH_SIZE > 0 else DEVICE_BATCH_SIZE}")
 if TRAIN_BUDGET_MODE == "tokens":
     print(f"Token budget: {TOKEN_BUDGET:,}")
 
@@ -705,6 +709,7 @@ total_tokens = processed_tokens
 val_bpb = None
 if not SKIP_EVAL:
     model.eval()
+    eval_batch_size = EVAL_BATCH_SIZE if EVAL_BATCH_SIZE > 0 else DEVICE_BATCH_SIZE
     eval_tokens = None
     eval_divisor = 32
     if QUICK_EVAL:
@@ -716,7 +721,7 @@ if not SKIP_EVAL:
     with autocast_ctx:
         eval_sig = inspect.signature(evaluate_bpb)
         if (eval_tokens is not None) and ("eval_tokens" in eval_sig.parameters):
-            val_bpb = evaluate_bpb(model, tokenizer, DEVICE_BATCH_SIZE, eval_tokens=eval_tokens)
+            val_bpb = evaluate_bpb(model, tokenizer, eval_batch_size, eval_tokens=eval_tokens)
         else:
             if QUICK_EVAL:
                 # Backward-compatible quick eval for prepare.evaluate_bpb(model, tokenizer, batch_size)
@@ -725,13 +730,13 @@ if not SKIP_EVAL:
                     _orig_eval_tokens = _prepare_mod.EVAL_TOKENS
                     _prepare_mod.EVAL_TOKENS = max(1, _orig_eval_tokens // eval_divisor)
                     try:
-                        val_bpb = evaluate_bpb(model, tokenizer, DEVICE_BATCH_SIZE)
+                        val_bpb = evaluate_bpb(model, tokenizer, eval_batch_size)
                     finally:
                         _prepare_mod.EVAL_TOKENS = _orig_eval_tokens
                 else:
-                    val_bpb = evaluate_bpb(model, tokenizer, DEVICE_BATCH_SIZE)
+                    val_bpb = evaluate_bpb(model, tokenizer, eval_batch_size)
             else:
-                val_bpb = evaluate_bpb(model, tokenizer, DEVICE_BATCH_SIZE)
+                val_bpb = evaluate_bpb(model, tokenizer, eval_batch_size)
 
 # Final summary
 t_end = time.time()
