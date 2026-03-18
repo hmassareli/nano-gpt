@@ -24,16 +24,21 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 | EXP-013 | Planned                      | No benchmark yet                                           | Pending. Tests 4-head full-rank variant.                                          |
 | EXP-014 | Planned                      | No benchmark yet                                           | Pending. Tests weight-space diversity preservation.                               |
 | EXP-015 | Planned                      | No benchmark yet                                           | Pending. Tests activation-space diversity preservation.                           |
-| EXP-016 | Planned                      | No benchmark yet                                           | Pending. Key test of whether single-head conditioning is enough.                  |
+| EXP-016 | Benchmarked / reinterpreted  | `surv`/`eff` subiram, mas o loss piorou                    | Important negative. Better use of $D$ alone did not translate into better learning. |
 | EXP-017 | Planned                      | No benchmark yet                                           | Pending. Tests linear multi-head with per-head supervision.                       |
 | EXP-018 | Planned                      | No benchmark yet                                           | Pending. Tests whether more supervised heads help at fixed rank.                  |
 | EXP-019 | Planned                      | No benchmark yet                                           | Pending. Tests if geometric overlap regularization adds value beyond per-head CE. |
 | EXP-020 | Planned                      | No benchmark yet                                           | Pending. Tests input-dependent routing as the anti-collapse mechanism.            |
 | EXP-021 | Planned                      | No benchmark yet                                           | Pending. Direct bypass of the final LM head via deep supervision.                 |
-| EXP-022 | Implemented                  | Code path exists; benchmark not recorded yet               | Pending. Very strong zero-parameter bypass hypothesis.                            |
+| EXP-022 | Benchmarked / needs redesign | Initial embedding-loss run was harmful                     | Promising idea, but current geometry likely conflicts with CE rather than disproving bypass. |
 | EXP-023 | Planned                      | No benchmark yet                                           | Pending. Capacity-heavy upper-bound control.                                      |
 | EXP-024 | Planned                      | No benchmark yet                                           | Pending. Tests whether early softmax smoothing improves gradient rank.            |
 | EXP-025 | Planned                      | No benchmark yet                                           | Pending. Most direct multi-head test of backward-channel diversity.               |
+| EXP-026 | Planned                      | No benchmark yet                                           | Pending. Learned latent target for supervision instead of reusing input embeddings. |
+| EXP-027 | Planned                      | No benchmark yet                                           | Pending. Adaptive extra compute only on ambiguous tokens.                         |
+| EXP-028 | Planned                      | No benchmark yet                                           | Pending. Coarse-to-fine output decomposition for large vocabularies.              |
+| EXP-029 | Planned                      | No benchmark yet                                           | Pending. JEPA-style latent prediction bypass from intermediate layers.            |
+| EXP-030 | Planned                      | No benchmark yet                                           | Pending. Input-dependent routed latent readout instead of static multi-head sum.  |
 
 ## Diagnostic Metrics to Track
 
@@ -120,6 +125,11 @@ Recommended rule: use the same-step matched baseline for every metric comparison
 | 022      | emb space loss     | 1      | —   | 512      | —       | —                               | 0             |
 | 023      | MoS                | 4 full | D   | 4×512    | —       | —                               | +16.8M        |
 | 024      | temp schedule      | 1      | —   | 512      | —       | —                               | 0             |
+| 026      | learned target codec | 1    | —   | 512      | —       | learned latent target           | TBD           |
+| 027      | adaptive head compute | 1+refine | — | 512    | opcional | uncertainty-triggered compute   | small/TBD     |
+| 028      | hierarchical vocab head | coarse+fine | — | TBD | opcional | coarse-to-fine routing        | TBD           |
+| 029      | JEPA latent aux    | 1      | —   | 512      | opcional | latent prediction bypass        | small/TBD     |
+| 030      | gated latent readout | K gated | TBD | token-dep | opcional | token-dependent routing       | TBD           |
 
 ### Comparações diretas planejadas
 
@@ -155,6 +165,18 @@ Recommended rule: use the same-step matched baseline for every metric comparison
 8. **Custo-benefício**:
    - 022 (0 params) vs 023 (16.8M params) → quão longe vai a solução zero-custo?
 
+9. **Bypass com target herdado vs target aprendido**:
+   - 022 ↔ 026
+   - Se 026 > 022, o problema do 022 é geometria/alvo ruim, não a ideia de bypass em si.
+
+10. **Bypass latente vs bypass supervisionado por embedding**:
+   - 026/029 ↔ 022
+   - Se 029 > 022, prever um alvo latente interno é mais natural do que empurrar o hidden para o embedding do token.
+
+11. **Mexer no head vs alocar compute adaptativo**:
+   - 027/028/030 ↔ 016/019/020
+   - Se 027/028/030 ganham, o problema não é apenas geometria do head, mas esforço uniforme demais para um problema de saída heterogêneo.
+
 ---
 
 ## Recommended Next Benchmarks
@@ -177,16 +199,79 @@ Recommended rule: use the same-step matched baseline for every metric comparison
 6. **Melhor entre 016 e multi-head vs 022**
    - Decide se vale mais insistir em melhorar o head ou bypassar o problema.
 
+7. **022 vs 026 vs 029**
+   - Decide qual forma de bypass merece virar a linha principal: embedding herdado, target aprendido, ou predição latente interna.
+
+8. **Melhor bypass vs 027/028/030**
+   - Decide se o próximo salto vem de abandonar o head como canal principal de treino ou de tornar a leitura de saída mais adaptativa.
+
 ---
 
 ## Strategic Insight
 
-O esforço de multi-head **pode sim ser em vão** se a maior parte do problema vier do gargalo estrutural $V \to D$ ou se um head único bem condicionado (EXP-016) capturar quase todo o ganho disponível. Em outras palavras: se o SGD já consegue usar quase todo o espaço $D$ depois de uma regularização simples, então separar em heads vira complexidade desnecessária.
+### Current Working Interpretation
 
-O caso em que multi-head ainda vale a pena é mais específico: quando há subutilização persistente de dimensões **dentro** de $D$ e quando diferentes canais conseguem entregar sinais de backward complementares ao backbone. É por isso que a nova linha 017-020/025 mudou de foco: ela não assume mais que "separar heads" por si só resolve. Ela testa explicitamente se esses canais continuam distintos no task-space, no roteamento por contexto, ou no próprio gradiente em $h$.
+O resultado mais informativo até aqui nao e o melhor benchmark isolado, e sim o comportamento do **EXP-016**: as metricas que o paper aponta como desejaveis (`surv`, `eff`, `rr`) podem melhorar bastante sem produzir melhor loss final. A leitura mais forte disso e que **melhorar apenas o uso interno do espaco $D$ nao basta**. Em outras palavras, ha evidencia de que o problema relevante nao e so "otimizacao ruim dentro de $D$", mas sim a propria compressao estrutural $V \to D$.
 
-Em termos práticos, eu trataria a linha multi-head agora como uma hipótese forte, mas já bem falsificável:
+Essa releitura tambem organiza melhor a familia multi-head. O ganho inicial do EXP-007 nao contradiz a tese estrutural: ele sugere apenas que mais diversidade de gradiente ajuda no early training. O fato de a vantagem desaparecer e de a familia multi-head nao sustentar ganho duravel aponta para a interpretacao mais dura: **multi-head atrasa o problema, mas nao remove o gargalo fundamental**.
 
-- Se 017/018 falharem, a separação linear pura com supervisão individual já não sustenta a tese.
-- Se 020/025 não superarem 016, a decomposição em canais provavelmente não compensa a complexidade.
-- Se 022 funcionar muito bem, o diagnóstico mais forte passa a ser: o problema relevante não é subutilização de dimensões dentro de $D$, e sim o fato de forçar toda supervisão a passar por um LM head final.
+O resultado ruim do EXP-022 tambem precisa ser interpretado com cuidado. Ele nao invalida bypass. O mais provavel e que a implementacao atual force uma geometria inadequada (`h` aproximando embedding bruto do token) e entre em conflito com a CE. O ponto importante permanece: um gradiente direto no hidden, sem passar pelo LM head, continua sendo a linha conceitualmente mais alinhada com o diagnostico.
+
+### What The Current Results Already Rule Out
+
+- Melhorar condicionamento do head por si so nao parece suficiente.
+- Fatorar ou multiplicar heads sem alterar o gargalo estrutural nao parece suficiente.
+- Diversidade temporaria no backward ajuda cedo, mas nao se sustenta sozinha.
+
+### What Still Looks Promising
+
+- `EXP-005`: bypass contrastivo, desde que a implementacao passe a usar positivos mais estruturados e projection head.
+- `EXP-022`: bypass por loss auxiliar ainda parece promissor, mas precisa correcoes de geometria.
+- `EXP-026` e `EXP-029`: sao as extensoes mais diretas da intuicao "nao depender do LM head como canal principal de supervisao".
+
+### New Planned Directions
+
+## EXP-026: Learned Target Codec
+
+**Hypothesis:** O bypass do EXP-022 fica mais forte se o alvo latente for aprendido especificamente para supervisao, em vez de herdar a geometria da tabela de embeddings de entrada.
+**Type:** Auxiliary loss. Mantem a CE normal e adiciona um alvo latente aprendido por token.
+**Mechanism:** Introduz uma pequena tabela ou codec de targets latentes `z_y`. O hidden final e pressionado a aproximar `z_y` por MSE, cosine loss ou variante BYOL-like. O alvo entra com stop-grad e pode ter normalizacao propria.
+**Why now:** Continua a linha do EXP-022, mas remove a suposicao forte de que `wte(y)` e a melhor interface geometrica para ensinar o backbone.
+**Risk:** Colapso do codec, ou o codec virar apenas uma copia disfarçada do embedding de entrada.
+
+## EXP-027: Adaptive Head Compute
+
+**Hypothesis:** Um unico head uniforme desperdiça compute em tokens faceis e continua insuficiente nos ambiguos. Dar segunda passada apenas onde a entropia e alta melhora custo-beneficio e capacidade efetiva de decodificacao.
+**Type:** Structural. Head em duas fases com refinamento seletivo.
+**Mechanism:** Uma primeira passada barata produz logits e entropia. Apenas posicoes ambiguas recebem refinamento extra por outro head, MLP residual, ou pequeno conjunto de experts. Em posicoes faceis, usa-se a primeira previsao diretamente.
+**Why now:** E a traducao mais direta da ideia de "mais esforco onde ha incerteza" para a saida do LM.
+**Risk:** Gate de incerteza mal calibrado, complexidade extra e dificuldade de benchmarking justo.
+
+## EXP-028: Hierarchical Vocab Head
+
+**Hypothesis:** Um softmax plano sobre todo o vocab trata erros grosseiros e erros finos como se fossem o mesmo tipo de decisao. Uma decomposicao coarse-to-fine reduz a violencia da compressao estrutural e organiza melhor o gradiente.
+**Type:** Structural. Head hierarquico em duas etapas.
+**Mechanism:** Primeiro prediz cluster/classe/coarse code; depois prediz o token dentro do cluster escolhido. Os clusters podem vir de frequencia, embedding clustering ou aprendizagem conjunta.
+**Why now:** Com vocab maior, uma saida hierarquica fica mais plausivel do que insistir em um unico softmax plano.
+**Risk:** Se os clusters forem ruins, adiciona atrito sem ganho real.
+
+## EXP-029: JEPA-Style Latent Prediction
+
+**Hypothesis:** Uma camada intermediaria pode aprender melhor se for supervisionada para prever um alvo latente interno estavel, sem passar pelo head final.
+**Type:** Auxiliary loss. Bypass encoder-first.
+**Mechanism:** Um hidden intermediario, como `h_6`, passa por um pequeno preditor `P`. O alvo pode ser `sg(h_12)`, um hidden de teacher EMA, ou um target latente do proximo token. A loss latente roda junto com a CE final.
+**Why now:** E o bypass mais alinhado com a leitura atual: supervisionar o backbone em espaco de representacao, nao em espaco de vocabulario.
+**Clarification:** Isso nao significa treinar um modelinho separado de traducao token->hidden. Significa usar uma loss auxiliar onde uma parte do proprio modelo aprende a prever uma representacao latente-alvo produzida por outra parte do sistema.
+**Risk:** Colapso representacional ou melhora de alinhamento interno sem ganho em perplexity.
+
+## EXP-030: Gated Latent Readout
+
+**Hypothesis:** Somar heads fixas tende a convergir para um operador efetivo quase unico. Um roteamento por token preserva subespacos de leitura realmente distintos.
+**Type:** Structural. Readout com roteamento dependente do input.
+**Mechanism:** Um gate por token decide a combinacao entre varios leitores latentes especializados. O operador efetivo de saida passa a depender do contexto local, com regularizacao de load balancing para evitar colapso.
+**Why now:** E a extensao natural da linha multi-head quando a leitura estatica ja mostrou limite claro.
+**Risk:** Colapso do gate e comparacao injusta se o compute medio nao for controlado.
+
+### Note On Revisions
+
+As revisoes e subexperimentos corretivos da agenda atual estao em [experiment_revisions.md](c:/Users/Henrique/studies/nano%20gpt/experiment_revisions.md). A convencao proposta e usar sufixos como `EXP-022.1`, `EXP-022.2`, `EXP-029.1` para variacoes corretivas do mesmo nucleo experimental, em vez de abrir uma familia numerica totalmente nova para cada ajuste.
