@@ -561,11 +561,11 @@ if "--full-eval" in sys.argv:
     QUICK_EVAL = False
 
 # Parse CLI args
+TOTAL_BATCH_SIZE = 2**18
 TOKEN_BUDGET = 400_000_000
 DEPTH = 12
-DEVICE_BATCH_SIZE = 32
-EVAL_BATCH_SIZE = 64
-GRAD_ACCUM_STEPS = 1
+DEVICE_BATCH_SIZE = 128
+EVAL_BATCH_SIZE = 0
 STEP_BUDGET = None
 SEQ_LEN_OVERRIDE = 0
 
@@ -589,13 +589,14 @@ for arg in sys.argv[1:]:
     elif arg.startswith("--seq-len="):
         SEQ_LEN_OVERRIDE = int(arg.split("=", 1)[1])
     elif arg.startswith("--accum="):
-        GRAD_ACCUM_STEPS = int(arg.split("=", 1)[1])
+        TOTAL_BATCH_SIZE = int(arg.split("=", 1)[1]) * DEVICE_BATCH_SIZE
 
-TOTAL_BATCH_SIZE = DEVICE_BATCH_SIZE * GRAD_ACCUM_STEPS
 TRAIN_SEQ_LEN = min(MAX_SEQ_LEN, SEQ_LEN_OVERRIDE) if SEQ_LEN_OVERRIDE else MAX_SEQ_LEN
-TOKENS_PER_STEP = TOTAL_BATCH_SIZE * TRAIN_SEQ_LEN
+tokens_per_fwdbwd = DEVICE_BATCH_SIZE * TRAIN_SEQ_LEN
+assert TOTAL_BATCH_SIZE % tokens_per_fwdbwd == 0
+GRAD_ACCUM_STEPS = TOTAL_BATCH_SIZE // tokens_per_fwdbwd
 if STEP_BUDGET is not None:
-    TOKEN_BUDGET = STEP_BUDGET * TOKENS_PER_STEP
+    TOKEN_BUDGET = STEP_BUDGET * TOTAL_BATCH_SIZE
     TRAIN_BUDGET_MODE = "tokens"
 
 # Tokenizer
@@ -622,6 +623,11 @@ optimizer = model.setup_optimizer()
 # Dataloader
 train_loader = make_dataloader(tokenizer, DEVICE_BATCH_SIZE, config.sequence_len, "train")
 x, y, epoch = next(train_loader)
+
+print(f"Gradient accumulation steps: {GRAD_ACCUM_STEPS}")
+print(f"Eval batch size: {EVAL_BATCH_SIZE if EVAL_BATCH_SIZE > 0 else DEVICE_BATCH_SIZE}")
+if TRAIN_BUDGET_MODE == "tokens":
+    print(f"Token budget: {TOKEN_BUDGET:,}")
 
 # AMP context
 compute_dtype = config.compute_dtype
@@ -689,15 +695,15 @@ while True:
 
     if step > 10:
         total_training_time += dt
-    processed_tokens += TOKENS_PER_STEP
+    processed_tokens += TOTAL_BATCH_SIZE
 
     # Logging
     ema_beta = 0.9
     smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f
     debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1))
     pct_done = 100 * progress
-    tok_per_sec = int(TOKENS_PER_STEP / dt)
-    mfu = 100 * num_flops_per_token * TOKENS_PER_STEP / dt / H100_BF16_PEAK_FLOPS
+    tok_per_sec = int(TOTAL_BATCH_SIZE / dt)
+    mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE / dt / H100_BF16_PEAK_FLOPS
     if TRAIN_BUDGET_MODE == "tokens":
         remaining = max(0, TOKEN_BUDGET - processed_tokens)
         remaining_str = f"{remaining:,} tok"
