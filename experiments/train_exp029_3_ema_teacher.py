@@ -357,33 +357,35 @@ class GPT(nn.Module):
             return x, intermediate
         return x
 
-    def forward_head(self, x, targets=None, reduction='mean', intermediate=None, teacher_target=None):
+    def forward_head(self, x, targets=None, reduction='mean', intermediate=None, teacher_target=None, return_components=False):
         softcap = 13
         logits = self.lm_head(x)
         logits = logits.float()
         logits = softcap * torch.tanh(logits / softcap)
 
         if targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1),
-                                   ignore_index=-1, reduction=reduction)
+            ce_loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1),
+                                      ignore_index=-1, reduction=reduction)
+            latent_loss = torch.zeros((), device=logits.device, dtype=torch.float32)
             
             # EXP-029.3: JEPA-style latent bypass with EMA teacher target
             # Predict teacher's h_12 from student's h_6 using small predictor
             if intermediate is not None and teacher_target is not None:
                 predicted_final = self.latent_predictor(intermediate.float())
                 latent_loss = F.mse_loss(predicted_final, teacher_target, reduction='mean')
-                loss = loss + LATENT_LOSS_LAMBDA * latent_loss
-            
-            return loss
+            total_loss = ce_loss + LATENT_LOSS_LAMBDA * latent_loss
+            if return_components:
+                return total_loss, ce_loss.detach().float(), latent_loss.detach().float()
+            return total_loss
         return logits
 
-    def forward(self, idx, targets=None, reduction='mean', teacher_target=None):
+    def forward(self, idx, targets=None, reduction='mean', teacher_target=None, return_components=False):
         if targets is not None:
             x, intermediate = self.forward_backbone(idx, return_intermediate=True)
-            return self.forward_head(x, targets, reduction, intermediate, teacher_target)
+            return self.forward_head(x, targets, reduction, intermediate, teacher_target, return_components)
         else:
             x = self.forward_backbone(idx, return_intermediate=False)
-            return self.forward_head(x, targets, reduction, None, None)
+            return self.forward_head(x, targets, reduction, None, None, False)
 
 
 # ---------------------------------------------------------------------------
@@ -679,7 +681,9 @@ step = 0
 epoch = 0
 processed_tokens = 0
 total_training_time = 0.0
-smooth_train_loss = 4.0
+smooth_train_loss = 0.0
+smooth_ce_loss = 0.0
+smooth_latent_loss = 0.0
 
 print("\n--- Training ---")
 
@@ -701,18 +705,26 @@ while True:
         group["lr"] = group["initial_lr"] * lrm
 
     loss_accum = 0.0
+    ce_loss_accum = 0.0
+    latent_loss_accum = 0.0
     for micro_step in range(GRAD_ACCUM_STEPS):
         with autocast_ctx:
             # EXP-029.3: Get teacher target (stop-grad by default)
             with torch.no_grad():
                 teacher_target = teacher.get_target(x).float()
 
-            train_loss = model(x, y, reduction='sum', teacher_target=teacher_target) / x.numel()
+            train_loss, ce_loss, latent_loss = model(x, y, reduction='sum', teacher_target=teacher_target, return_components=True)
+            train_loss = train_loss / x.numel()
+            ce_loss = ce_loss / x.numel()
         loss_accum += train_loss.detach()
+        ce_loss_accum += ce_loss.detach()
+        latent_loss_accum += latent_loss.detach()
         (train_loss / GRAD_ACCUM_STEPS).backward()
         x, y, epoch = next(train_loader)
 
     train_loss = loss_accum / GRAD_ACCUM_STEPS
+    ce_loss = ce_loss_accum / GRAD_ACCUM_STEPS
+    latent_loss = latent_loss_accum / GRAD_ACCUM_STEPS
 
     # Gradient metrics
     grad_info = None
@@ -744,7 +756,11 @@ while True:
     # Logging
     ema_beta = 0.9
     smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f
+    smooth_ce_loss = ema_beta * smooth_ce_loss + (1 - ema_beta) * ce_loss.item()
+    smooth_latent_loss = ema_beta * smooth_latent_loss + (1 - ema_beta) * latent_loss.item()
     debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1))
+    debiased_smooth_ce = smooth_ce_loss / (1 - ema_beta**(step + 1))
+    debiased_smooth_latent = smooth_latent_loss / (1 - ema_beta**(step + 1))
     pct_done = 100 * progress
     tok_per_sec = int(TOTAL_BATCH_SIZE / dt)
     mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE / dt / H100_BF16_PEAK_FLOPS
@@ -755,7 +771,7 @@ while True:
         remaining = max(0, TIME_BUDGET - total_training_time)
         remaining_str = f"{remaining:.0f}s"
 
-    print(f"step {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining_str}    ", flush=True)
+    print(f"step {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | ce: {debiased_smooth_ce:.6f} | latent: {debiased_smooth_latent:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining_str}    ", flush=True)
     if grad_info is not None:
         print(grad_info["log_line"], flush=True)
 
