@@ -29,8 +29,8 @@ STEP_RE = re.compile(
     re.IGNORECASE,
 )
 FLOAT_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
-EXP_ID_RE = re.compile(r"\bEXP-(\d{3})\b", re.IGNORECASE)
-DOC_SECTION_RE = re.compile(r"^(##|###) EXP-(\d{3}): .*$", re.MULTILINE)
+EXP_ID_RE = re.compile(r"\bEXP-(\d{3})(?:\.(\d+))?\b", re.IGNORECASE)
+DOC_SECTION_RE = re.compile(r"^(##|###) EXP-(\d{3})(?:\.(\d+))?: .*$", re.MULTILINE)
 
 
 @dataclass

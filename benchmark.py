@@ -67,7 +67,7 @@ if not train_files:
 
 # Extract EXP_TITLE from a train script file
 TITLE_RE = re.compile(r'^EXP_TITLE\s*=\s*["\'](.+?)["\']', re.MULTILINE)
-EXP_ID_RE = re.compile(r'\bEXP-(\d{3})\b', re.IGNORECASE)
+EXP_ID_RE = re.compile(r'\bEXP-(\d{3})(?:\.(\d+))?\b', re.IGNORECASE)
 def get_exp_title(filepath):
     with open(filepath, encoding="utf-8") as fh:
         head = fh.read(2048)
@@ -78,7 +78,10 @@ def get_config_tag(name, title):
     for candidate in (title, name):
         m = EXP_ID_RE.search(candidate)
         if m:
-            return f"exp{m.group(1)}"
+            base = f"exp{m.group(1)}"
+            if m.group(2):  # revision suffix
+                base += f"-{m.group(2)}"
+            return base
     lowered = title.lower()
     if lowered == "baseline" or name == "train":
         return "bl"
@@ -87,11 +90,15 @@ def get_config_tag(name, title):
 
 def sort_config_tags(tags):
     def sort_key(tag):
-        if tag.startswith("exp") and tag[3:].isdigit():
-            return (0, int(tag[3:]), tag)
+        if tag.startswith("exp"):
+            parts = tag[3:].split("-")
+            if parts[0].isdigit():
+                exp_num = int(parts[0])
+                rev_num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+                return (0, exp_num, rev_num, tag)
         if tag == "bl":
-            return (2, 0, tag)
-        return (1, 0, tag)
+            return (2, 0, 0, tag)
+        return (1, 0, 0, tag)
     return sorted(tags, key=sort_key)
 
 def build_log_path(configs, steps):
