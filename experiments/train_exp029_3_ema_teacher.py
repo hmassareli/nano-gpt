@@ -397,6 +397,11 @@ class EMATeacher:
         self.teacher = type(student_model)(student_model.config)
         self.teacher.to(next(student_model.parameters()).device)
         self.teacher.load_state_dict(student_model.state_dict())
+        self.teacher.transformer.wte.to(dtype=student_model.transformer.wte.weight.dtype)
+        for key, value_embed in self.teacher.value_embeds.items():
+            value_embed.to(dtype=student_model.value_embeds[key].weight.dtype)
+        self.teacher.cos = self.teacher.cos.to(dtype=student_model.cos.dtype)
+        self.teacher.sin = self.teacher.sin.to(dtype=student_model.sin.dtype)
         # Teacher is always in eval mode and doesn't require gradients
         self.teacher.eval()
         for param in self.teacher.parameters():
@@ -492,19 +497,6 @@ class MuonAdamW(torch.optim.Optimizer):
         self._muon_wd_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._muon_beta2_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._muon_ns_steps_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        # Stack matrix parameters into single contiguous param (for Muon)
-        self.muon_params_stacked = []
-        self.muon_param_shapes = []
-        for group in self.param_groups:
-            if group.get("kind") == "muon":
-                params = group["params"]
-                stacked = torch.stack([p.view(-1) for p in params])
-                self.muon_params_stacked.append(stacked)
-                self.muon_param_shapes.append([p.shape for p in params])
-                for i, p in enumerate(params):
-                    view_params = stacked[i].view(p.shape)
-                    p.data = view_params
-                    assert p.data.data_ptr() == view_params.data_ptr()
 
     def zero_grad(self, set_to_none=False):
         for group in self.param_groups:
@@ -515,58 +507,66 @@ class MuonAdamW(torch.optim.Optimizer):
                     if p.grad is not None:
                         p.grad.zero_()
 
+    def _step_adamw(self, group):
+        for p in group["params"]:
+            if p.grad is None:
+                continue
+            grad = p.grad
+            state = self.state[p]
+            if not state:
+                state["step"] = 0
+                state["exp_avg"] = torch.zeros_like(p)
+                state["exp_avg_sq"] = torch.zeros_like(p)
+            state["step"] += 1
+            self._adamw_step_t.fill_(state["step"])
+            self._adamw_lr_t.fill_(group["lr"])
+            self._adamw_beta1_t.fill_(group["betas"][0])
+            self._adamw_beta2_t.fill_(group["betas"][1])
+            self._adamw_eps_t.fill_(group["eps"])
+            self._adamw_wd_t.fill_(group.get("weight_decay", 0.0))
+            adamw_step_fused(
+                p, grad, state["exp_avg"], state["exp_avg_sq"],
+                self._adamw_step_t, self._adamw_lr_t, self._adamw_beta1_t,
+                self._adamw_beta2_t, self._adamw_eps_t, self._adamw_wd_t,
+            )
+
+    def _step_muon(self, group):
+        params = [p for p in group["params"] if p.grad is not None]
+        if not params:
+            return
+        p = params[0]
+        state = self.state[p]
+        num_params = len(params)
+        shape, device, dtype = p.shape, p.device, p.dtype
+        if "momentum_buffer" not in state:
+            state["momentum_buffer"] = torch.zeros(num_params, *shape, dtype=dtype, device=device)
+        if "second_momentum_buffer" not in state:
+            state_shape = (num_params, shape[-2], 1) if shape[-2] >= shape[-1] else (num_params, 1, shape[-1])
+            state["second_momentum_buffer"] = torch.zeros(state_shape, dtype=dtype, device=device)
+        red_dim = -1 if shape[-2] >= shape[-1] else -2
+        stacked_grads = torch.stack([p.grad for p in params])
+        stacked_params = torch.stack(params)
+        self._muon_momentum_t.fill_(group["momentum"])
+        self._muon_beta2_t.fill_(group["beta2"] if group["beta2"] is not None else 0.0)
+        self._muon_lr_t.fill_(group["lr"] * max(1.0, shape[-2] / shape[-1])**0.5)
+        self._muon_wd_t.fill_(group.get("weight_decay", 0.0))
+        muon_step_fused(
+            stacked_grads, stacked_params,
+            state["momentum_buffer"], state["second_momentum_buffer"],
+            self._muon_momentum_t, self._muon_lr_t, self._muon_wd_t,
+            self._muon_beta2_t, group["ns_steps"], red_dim,
+        )
+        for param, updated in zip(params, stacked_params.unbind(0)):
+            param.copy_(updated)
+
     @torch.no_grad()
     def step(self):
         for group in self.param_groups:
             if group.get("kind") == "adamw":
-                self._adamw_step_t.fill_(self.state.get("step", 0) + 1)
-                self._adamw_lr_t.fill_(group["lr"])
-                self._adamw_beta1_t.fill_(group["betas"][0])
-                self._adamw_beta2_t.fill_(group["betas"][1])
-                self._adamw_eps_t.fill_(group["eps"])
-                self._adamw_wd_t.fill_(group.get("weight_decay", 0.0))
-                for p in group["params"]:
-                    if p.grad is None:
-                        continue
-                    state = self.state[p]
-                    if len(state) == 0:
-                        state["exp_avg"] = torch.zeros_like(p)
-                        state["exp_avg_sq"] = torch.zeros_like(p)
-                    adamw_step_fused(
-                        p, p.grad, state["exp_avg"], state["exp_avg_sq"],
-                        self._adamw_step_t, self._adamw_lr_t, self._adamw_beta1_t,
-                        self._adamw_beta2_t, self._adamw_eps_t, self._adamw_wd_t,
-                    )
+                self._step_adamw(group)
 
             elif group.get("kind") == "muon":
-                self._muon_momentum_t.fill_(group["momentum"])
-                self._muon_lr_t.fill_(group["lr"])
-                self._muon_wd_t.fill_(group.get("weight_decay", 0.0))
-                self._muon_beta2_t.fill_(group["beta2"])
-                self._muon_ns_steps_t.fill_(group["ns_steps"])
-                params = group["params"]
-                grads = [p.grad for p in params if p.grad is not None]
-                if len(grads) == 0:
-                    continue
-                state_key = id(params[0])
-                if state_key not in self.state:
-                    self.state[state_key] = {
-                        "momentum_buffer": torch.zeros_like(grads[0]),
-                        "second_momentum_buffer": torch.zeros_like(grads[0]),
-                    }
-                state = self.state[state_key]
-                stacked_grads = torch.stack([g.view(-1) for g in grads])
-                stacked_params = torch.stack([p.view(-1) for p in params])
-                red_dim = 0 if stacked_params.size(0) < stacked_params.size(1) else 1
-                muon_step_fused(
-                    stacked_grads, stacked_params,
-                    state["momentum_buffer"], state["second_momentum_buffer"],
-                    self._muon_momentum_t, self._muon_lr_t, self._muon_wd_t,
-                    self._muon_beta2_t, int(self._muon_ns_steps_t.item()), red_dim,
-                )
-        if "step" not in self.state:
-            self.state["step"] = 0
-        self.state["step"] += 1
+                self._step_muon(group)
 
 
 # ---------------------------------------------------------------------------
