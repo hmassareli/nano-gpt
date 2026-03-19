@@ -170,9 +170,12 @@ def choose_best_baseline_for_steps(target_steps, preferred_log=None):
     return max(candidates, key=lambda item: item["mtime"])
 
 
-def parse_losses(filepath, section_keyword):
-    """Parse step losses for a given section keyword."""
-    losses = {}
+STEP_METRIC_RE = re.compile(r"step\s+(\d+).*?\|\s+loss:\s*([\d.]+)(?:\s*\|\s+ce:\s*([\d.]+))?", re.IGNORECASE)
+
+
+def parse_metric_series(filepath, section_keyword, metric_preference="auto"):
+    """Parse per-step series for a section, preferring CE when available."""
+    metric_series = {"loss": {}, "ce": {}}
     in_section = False
     with open(filepath, encoding="utf-8") as file_handle:
         for line in file_handle:
@@ -183,12 +186,24 @@ def parse_losses(filepath, section_keyword):
             if in_section and section_name:
                 break
             if in_section:
-                match = re.search(r"step (\d+).*?loss: ([\d.]+)", line)
+                match = STEP_METRIC_RE.search(line)
                 if match:
-                    losses[int(match.group(1))] = float(match.group(2))
-                if line.strip() == "---" and len(losses) > 5:
+                    step = int(match.group(1))
+                    metric_series["loss"][step] = float(match.group(2))
+                    if match.group(3) is not None:
+                        metric_series["ce"][step] = float(match.group(3))
+                if line.strip() == "---" and len(metric_series["loss"]) > 5:
                     break
-    return losses
+
+    if metric_preference == "ce":
+        selected_metric = "ce" if metric_series["ce"] else None
+    elif metric_preference == "loss":
+        selected_metric = "loss" if metric_series["loss"] else None
+    else:
+        selected_metric = "ce" if metric_series["ce"] else ("loss" if metric_series["loss"] else None)
+
+    selected_series = metric_series[selected_metric] if selected_metric else {}
+    return selected_metric, selected_series
 
 
 def parse_avg_toksec(filepath, section_keyword):
@@ -268,14 +283,14 @@ def build_parser():
 
 def print_report(bl_path, bl_section, exp_path, exp_section, args):
     """Print one lag analysis report and return a process-like status code."""
-    baseline = parse_losses(bl_path, bl_section)
-    experiment = parse_losses(exp_path, exp_section)
+    baseline_metric, baseline = parse_metric_series(bl_path, bl_section, metric_preference="loss")
+    experiment_metric, experiment = parse_metric_series(exp_path, exp_section, metric_preference="auto")
 
     if not baseline:
         print(f"Sem dados de loss para '{bl_section}'")
         return 1
     if not experiment:
-        print(f"Sem dados de loss para '{exp_section}'")
+        print(f"Sem dados de loss/ce para '{exp_section}'")
         return 1
 
     bl_steps = sorted(baseline.keys())
@@ -285,16 +300,17 @@ def print_report(bl_path, bl_section, exp_path, exp_section, args):
     short_exp = exp_section.split(":")[0].strip() if ":" in exp_section else exp_section
     print(f"\n{short_exp} vs {bl_section}")
     print("=" * 80)
+    print(f"Metricas: EXP usa {experiment_metric}, BL usa {baseline_metric}")
 
     window = 20
     sample_every = max(1, args.every)
     if args.summary:
         print(f"Sampling every {sample_every} steps (summary mode)")
-        print(f"{'Step':>5} | {'EXP Loss':>9} | {'BL Loss':>9} | {'Diff%':>6} | {'Lag':>5}")
+        print(f"{'Step':>5} | {'EXP':>9} | {'BL':>9} | {'Diff%':>6} | {'Lag':>5}")
         print("-" * 47)
     else:
         print(f"Sampling every {sample_every} steps")
-        print(f"{'Step':>5} | {'EXP Loss':>9} | {'BL Loss':>9} | {'Diff':>8} | {'Diff%':>6} | {'DrpΔ%':>6} | {'WinΔ%':>6} | {'Lag':>5} | Visual")
+        print(f"{'Step':>5} | {'EXP':>9} | {'BL':>9} | {'Diff':>8} | {'Diff%':>6} | {'DrpΔ%':>6} | {'WinΔ%':>6} | {'Lag':>5} | Visual")
         print("-" * 98)
 
     exp_loss_0 = experiment[exp_steps[0]]
@@ -391,8 +407,8 @@ def print_report(bl_path, bl_section, exp_path, exp_section, args):
         print(f"\nThroughput: EXP {exp_tps:,.0f} tok/s vs BL {bl_tps:,.0f} tok/s ({sign}{pct:.1f}%)")
 
     print()
-    print("(+) = EXP loss MAIOR que BL (pior)")
-    print("(-) = EXP loss MENOR que BL (melhor)")
+    print(f"(+) = EXP {experiment_metric} MAIOR que BL {baseline_metric} (pior)")
+    print(f"(-) = EXP {experiment_metric} MENOR que BL {baseline_metric} (melhor)")
     return 0
 
 
