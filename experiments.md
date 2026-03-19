@@ -7,38 +7,38 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 
 ## Summary by Experiment
 
-| Exp     | Status                       | Result                                                     | Conclusion                                                                                   |
-| ------- | ---------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| EXP-001 | Completed                    | Tied baseline by 100 steps; +40% step cost                 | Negative. One-shot head-first update does not solve a continuous bottleneck.                 |
-| EXP-002 | Benchmarked (100 steps)      | Worse than baseline mid-run; no durable gain               | Negative. Init-only fixes decay too fast.                                                    |
-| EXP-003 | Benchmarked (100 steps)      | No decisive improvement recorded in current notes          | Neutral. Orthogonality idea is plausible, but current setup looks too weak.                  |
-| EXP-004 | Benchmarked (100 steps)      | Harmful due to scale mismatch and conflicting roles        | Harmful. Soft tying fights head/embedding specialization.                                    |
-| EXP-005 | Revisions ready              | `EXP-005.1/.2` implemented; main benchmark still pending   | Promising. Contrastive bypass still looks live if the auxiliary space is better designed.    |
-| EXP-006 | Completed (100 steps)        | val_bpb 1.663 vs baseline 1.564                            | Negative. GELU alone does not help.                                                          |
-| EXP-007 | Completed (300 steps)        | Early crossover, but final val_bpb 1.157 vs 1.144 baseline | Mixed. Gradient diversification helps early, but collapses later.                            |
-| EXP-008 | Planned / awaiting benchmark | No benchmark yet                                           | Pending. Speed-focused variant of EXP-007.                                                   |
-| EXP-009 | Reference only               | Not pursued as a real candidate                            | Rejected. Two-stage logic is fundamentally flawed.                                           |
-| EXP-010 | Planned / awaiting benchmark | No benchmark yet                                           | Pending. Tests whether head dropout preserves diversity.                                     |
-| EXP-011 | Planned                      | No benchmark yet                                           | Pending. Separate head dropout variant of EXP-007.                                           |
-| EXP-012 | Planned                      | No benchmark yet                                           | Pending. Tests multi-head with full rank and GELU.                                           |
-| EXP-013 | Planned                      | No benchmark yet                                           | Pending. Tests 4-head full-rank variant.                                                     |
-| EXP-014 | Planned                      | No benchmark yet                                           | Pending. Tests weight-space diversity preservation.                                          |
-| EXP-015 | Planned                      | No benchmark yet                                           | Pending. Tests activation-space diversity preservation.                                      |
-| EXP-016 | Benchmarked / reinterpreted  | `surv`/`eff` subiram, mas o loss piorou                    | Important negative. Better use of $D$ alone did not translate into better learning.          |
-| EXP-017 | Planned                      | No benchmark yet                                           | Pending. Tests linear multi-head with per-head supervision.                                  |
-| EXP-018 | Planned                      | No benchmark yet                                           | Pending. Tests whether more supervised heads help at fixed rank.                             |
-| EXP-019 | Planned                      | No benchmark yet                                           | Pending. Tests if geometric overlap regularization adds value beyond per-head CE.            |
-| EXP-020 | Planned                      | No benchmark yet                                           | Pending. Tests input-dependent routing as the anti-collapse mechanism.                       |
-| EXP-021 | Planned                      | No benchmark yet                                           | Pending. Direct bypass of the final LM head via deep supervision.                            |
-| EXP-022 | Benchmarked / needs redesign | Initial embedding-loss run was harmful                     | Promising idea, but current geometry likely conflicts with CE rather than disproving bypass. |
-| EXP-023 | Planned                      | No benchmark yet                                           | Pending. Capacity-heavy upper-bound control.                                                 |
-| EXP-024 | Planned                      | No benchmark yet                                           | Pending. Tests whether early softmax smoothing improves gradient rank.                       |
-| EXP-025 | Planned                      | No benchmark yet                                           | Pending. Most direct multi-head test of backward-channel diversity.                          |
-| EXP-026 | Planned                      | No benchmark yet                                           | Pending. Learned latent target for supervision instead of reusing input embeddings.          |
-| EXP-027 | Planned                      | No benchmark yet                                           | Pending. Adaptive extra compute only on ambiguous tokens.                                    |
-| EXP-028 | Planned                      | No benchmark yet                                           | Pending. Coarse-to-fine output decomposition for large vocabularies.                         |
+| Exp     | Status                       | Result                                                        | Conclusion                                                                                     |
+| ------- | ---------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| EXP-001 | Completed                    | Tied baseline by 100 steps; +40% step cost                    | Negative. One-shot head-first update does not solve a continuous bottleneck.                   |
+| EXP-002 | Benchmarked (100 steps)      | Worse than baseline mid-run; no durable gain                  | Negative. Init-only fixes decay too fast.                                                      |
+| EXP-003 | Benchmarked (100 steps)      | No decisive improvement recorded in current notes             | Neutral. Orthogonality idea is plausible, but current setup looks too weak.                    |
+| EXP-004 | Benchmarked (100 steps)      | Harmful due to scale mismatch and conflicting roles           | Harmful. Soft tying fights head/embedding specialization.                                      |
+| EXP-005 | Revisions ready              | `EXP-005.1/.2` implemented; main benchmark still pending      | Promising. Contrastive bypass still looks live if the auxiliary space is better designed.      |
+| EXP-006 | Completed (100 steps)        | val_bpb 1.663 vs baseline 1.564                               | Negative. GELU alone does not help.                                                            |
+| EXP-007 | Completed (300 steps)        | Early crossover, but final val_bpb 1.157 vs 1.144 baseline    | Mixed. Gradient diversification helps early, but collapses later.                              |
+| EXP-008 | Planned / awaiting benchmark | No benchmark yet                                              | Pending. Speed-focused variant of EXP-007.                                                     |
+| EXP-009 | Reference only               | Not pursued as a real candidate                               | Rejected. Two-stage logic is fundamentally flawed.                                             |
+| EXP-010 | Planned / awaiting benchmark | No benchmark yet                                              | Pending. Tests whether head dropout preserves diversity.                                       |
+| EXP-011 | Planned                      | No benchmark yet                                              | Pending. Separate head dropout variant of EXP-007.                                             |
+| EXP-012 | Planned                      | No benchmark yet                                              | Pending. Tests multi-head with full rank and GELU.                                             |
+| EXP-013 | Planned                      | No benchmark yet                                              | Pending. Tests 4-head full-rank variant.                                                       |
+| EXP-014 | Planned                      | No benchmark yet                                              | Pending. Tests weight-space diversity preservation.                                            |
+| EXP-015 | Planned                      | No benchmark yet                                              | Pending. Tests activation-space diversity preservation.                                        |
+| EXP-016 | Benchmarked / reinterpreted  | `surv`/`eff` subiram, mas o loss piorou                       | Important negative. Better use of $D$ alone did not translate into better learning.            |
+| EXP-017 | Planned                      | No benchmark yet                                              | Pending. Tests linear multi-head with per-head supervision.                                    |
+| EXP-018 | Planned                      | No benchmark yet                                              | Pending. Tests whether more supervised heads help at fixed rank.                               |
+| EXP-019 | Planned                      | No benchmark yet                                              | Pending. Tests if geometric overlap regularization adds value beyond per-head CE.              |
+| EXP-020 | Planned                      | No benchmark yet                                              | Pending. Tests input-dependent routing as the anti-collapse mechanism.                         |
+| EXP-021 | Planned                      | No benchmark yet                                              | Pending. Direct bypass of the final LM head via deep supervision.                              |
+| EXP-022 | Benchmarked / needs redesign | Initial embedding-loss run was harmful                        | Promising idea, but current geometry likely conflicts with CE rather than disproving bypass.   |
+| EXP-023 | Planned                      | No benchmark yet                                              | Pending. Capacity-heavy upper-bound control.                                                   |
+| EXP-024 | Planned                      | No benchmark yet                                              | Pending. Tests whether early softmax smoothing improves gradient rank.                         |
+| EXP-025 | Planned                      | No benchmark yet                                              | Pending. Most direct multi-head test of backward-channel diversity.                            |
+| EXP-026 | Planned                      | No benchmark yet                                              | Pending. Learned latent target for supervision instead of reusing input embeddings.            |
+| EXP-027 | Planned                      | No benchmark yet                                              | Pending. Adaptive extra compute only on ambiguous tokens.                                      |
+| EXP-028 | Planned                      | No benchmark yet                                              | Pending. Coarse-to-fine output decomposition for large vocabularies.                           |
 | EXP-029 | Benchmarked / mixed          | `029.2` strongest mid-run, but `029.2.2` gave gains back late | Mixed but alive. The family now looks more limited by target interface than by lack of signal. |
-| EXP-030 | Planned                      | No benchmark yet                                           | Pending. Input-dependent routed latent readout instead of static multi-head sum.             |
+| EXP-030 | Planned                      | No benchmark yet                                              | Pending. Input-dependent routed latent readout instead of static multi-head sum.               |
 
 ## Diagnostic Metrics to Track
 
