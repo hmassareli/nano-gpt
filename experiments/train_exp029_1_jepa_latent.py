@@ -372,7 +372,7 @@ class GPT(nn.Module):
             if intermediate is not None:
                 predicted_final = self.latent_predictor(intermediate.float())
                 target_final = x.float().detach()  # stop-grad on target
-                latent_loss = F.mse_loss(predicted_final, target_final, reduction=reduction)
+                latent_loss = F.mse_loss(predicted_final, target_final, reduction='mean')
                 loss = loss + LATENT_LOSS_LAMBDA * latent_loss
             
             return loss
@@ -680,7 +680,7 @@ while True:
 
     # Fast fail: abort if loss is exploding
     if train_loss_f > 100:
-        print("FAIL")
+        print(f"FAIL: train_loss={train_loss_f:.6f}")
         exit(1)
 
     torch.cuda.synchronize()

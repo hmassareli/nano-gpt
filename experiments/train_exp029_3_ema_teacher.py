@@ -371,7 +371,7 @@ class GPT(nn.Module):
             # Predict teacher's h_12 from student's h_6 using small predictor
             if intermediate is not None and teacher_target is not None:
                 predicted_final = self.latent_predictor(intermediate.float())
-                latent_loss = F.mse_loss(predicted_final, teacher_target, reduction=reduction)
+                latent_loss = F.mse_loss(predicted_final, teacher_target, reduction='mean')
                 loss = loss + LATENT_LOSS_LAMBDA * latent_loss
             
             return loss
@@ -724,7 +724,7 @@ while True:
 
     # Fast fail: abort if loss is exploding
     if train_loss_f > 100:
-        print("FAIL")
+        print(f"FAIL: train_loss={train_loss_f:.6f}")
         exit(1)
 
     torch.cuda.synchronize()
