@@ -3192,3 +3192,81 @@ step 00971 (97.1%) | loss: 3.327846 | ce: 3.327785 | latent: 0.999994 | lrm: 1.0
 step 00972 (97.2%) | loss: 3.325759 | ce: 3.325698 | latent: 0.999994 | lrm: 1.00 | dt: 7705ms | tok/sec: 34,021 | mfu: 2.4% | epoch: 1 | remaining: 7,077,888 tok    
 step 00973 (97.3%) | loss: 3.327171 | ce: 3.327110 | latent: 0.999994 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,025 | mfu: 2.4% | epoch: 1 | remaining: 6,815,744 tok    
 step 00974 (97.4%) | loss: 3.323763 | ce: 3.323702 | latent: 0.999994 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,025 | mfu: 2.4% | epoch: 1 | remaining: 6,553,600 tok    
+step 00975 (97.5%) | loss: 3.327313 | ce: 3.327252 | latent: 0.999995 | lrm: 1.00 | dt: 7705ms | tok/sec: 34,021 | mfu: 2.4% | epoch: 1 | remaining: 6,291,456 tok    
+step 00976 (97.6%) | loss: 3.329920 | ce: 3.329859 | latent: 0.999995 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,027 | mfu: 2.4% | epoch: 1 | remaining: 6,029,312 tok    
+step 00977 (97.7%) | loss: 3.328049 | ce: 3.327988 | latent: 0.999995 | lrm: 1.00 | dt: 7705ms | tok/sec: 34,023 | mfu: 2.4% | epoch: 1 | remaining: 5,767,168 tok    
+step 00978 (97.8%) | loss: 3.328021 | ce: 3.327960 | latent: 0.999995 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,025 | mfu: 2.4% | epoch: 1 | remaining: 5,505,024 tok    
+step 00979 (97.9%) | loss: 3.329359 | ce: 3.329298 | latent: 0.999995 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,026 | mfu: 2.4% | epoch: 1 | remaining: 5,242,880 tok    
+step 00980 (98.0%) | loss: 3.326834 | ce: 3.326773 | latent: 0.999995 | lrm: 1.00 | dt: 7790ms | tok/sec: 33,652 | mfu: 2.3% | epoch: 1 | remaining: 4,980,736 tok    
+  grads | backbone: 0.1027 | head: 0.0455 | survival: 2.2589 | head_effrank: 484.0 | rank_ratio: 0.630 | top10e: 15.8%
+step 00981 (98.1%) | loss: 3.328104 | ce: 3.328043 | latent: 0.999994 | lrm: 1.00 | dt: 7703ms | tok/sec: 34,029 | mfu: 2.4% | epoch: 1 | remaining: 4,718,592 tok    
+step 00982 (98.2%) | loss: 3.327661 | ce: 3.327600 | latent: 0.999995 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,026 | mfu: 2.4% | epoch: 1 | remaining: 4,456,448 tok    
+step 00983 (98.3%) | loss: 3.324718 | ce: 3.324657 | latent: 0.999995 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,026 | mfu: 2.4% | epoch: 1 | remaining: 4,194,304 tok    
+step 00984 (98.4%) | loss: 3.326339 | ce: 3.326278 | latent: 0.999995 | lrm: 1.00 | dt: 7703ms | tok/sec: 34,030 | mfu: 2.4% | epoch: 1 | remaining: 3,932,160 tok    
+step 00985 (98.5%) | loss: 3.325806 | ce: 3.325744 | latent: 0.999995 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,027 | mfu: 2.4% | epoch: 1 | remaining: 3,670,016 tok    
+step 00986 (98.6%) | loss: 3.324557 | ce: 3.324496 | latent: 0.999995 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,026 | mfu: 2.4% | epoch: 1 | remaining: 3,407,872 tok    
+step 00987 (98.7%) | loss: 3.325795 | ce: 3.325734 | latent: 0.999995 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,027 | mfu: 2.4% | epoch: 1 | remaining: 3,145,728 tok    
+step 00988 (98.8%) | loss: 3.329723 | ce: 3.329662 | latent: 0.999996 | lrm: 1.00 | dt: 7703ms | tok/sec: 34,031 | mfu: 2.4% | epoch: 1 | remaining: 2,883,584 tok    
+step 00989 (98.9%) | loss: 3.333402 | ce: 3.333341 | latent: 0.999995 | lrm: 1.00 | dt: 7759ms | tok/sec: 33,784 | mfu: 2.4% | epoch: 1 | remaining: 2,621,440 tok    
+step 00990 (99.0%) | loss: 3.330652 | ce: 3.330591 | latent: 0.999995 | lrm: 1.00 | dt: 7703ms | tok/sec: 34,029 | mfu: 2.4% | epoch: 1 | remaining: 2,359,296 tok    
+step 00991 (99.1%) | loss: 3.331721 | ce: 3.331660 | latent: 0.999995 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,028 | mfu: 2.4% | epoch: 1 | remaining: 2,097,152 tok    
+step 00992 (99.2%) | loss: 3.327984 | ce: 3.327923 | latent: 0.999994 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,026 | mfu: 2.4% | epoch: 1 | remaining: 1,835,008 tok    
+step 00993 (99.3%) | loss: 3.326921 | ce: 3.326860 | latent: 0.999995 | lrm: 1.00 | dt: 7705ms | tok/sec: 34,021 | mfu: 2.4% | epoch: 1 | remaining: 1,572,864 tok    
+step 00994 (99.4%) | loss: 3.325469 | ce: 3.325408 | latent: 0.999994 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,025 | mfu: 2.4% | epoch: 1 | remaining: 1,310,720 tok    
+step 00995 (99.5%) | loss: 3.327159 | ce: 3.327098 | latent: 0.999993 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,025 | mfu: 2.4% | epoch: 1 | remaining: 1,048,576 tok    
+step 00996 (99.6%) | loss: 3.327930 | ce: 3.327869 | latent: 0.999994 | lrm: 1.00 | dt: 7704ms | tok/sec: 34,025 | mfu: 2.4% | epoch: 1 | remaining: 786,432 tok    
+step 00997 (99.7%) | loss: 3.323224 | ce: 3.323163 | latent: 0.999994 | lrm: 1.00 | dt: 7703ms | tok/sec: 34,033 | mfu: 2.4% | epoch: 1 | remaining: 524,288 tok    
+step 00998 (99.8%) | loss: 3.316786 | ce: 3.316725 | latent: 0.999994 | lrm: 1.00 | dt: 7717ms | tok/sec: 33,971 | mfu: 2.4% | epoch: 1 | remaining: 262,144 tok    
+step 00999 (99.9%) | loss: 3.316441 | ce: 3.316380 | latent: 0.999995 | lrm: 1.00 | dt: 7703ms | tok/sec: 34,033 | mfu: 2.4% | epoch: 1 | remaining: 0 tok    
+
+---
+val_bpb:          0.956265
+training_seconds: 7627.2
+total_seconds:    7732.7
+peak_vram_mb:     11903.4
+mfu_percent:      2.37
+total_tokens_M:   262.1
+num_steps:        1000
+num_params_M:     287.0
+depth:            12
+
+
+================================================================================
+  RESULTADOS  (1000 steps, quick-eval, total: 339.9 min)
+================================================================================
+Config                                        val_bpb   tokens_M  VRAM_MB  treino_s  total_s  exit
+--------------------------------------------------------------------------------------------------
+EXP-029.1: Layer-6 To Layer-12 Same-Token Prediction   1.106110      262.1    11120    6202.4     6298     0
+EXP-029.2: Next-Token Latent Prediction      1.105965      262.1    11121    6205.0     6336     0
+EXP-029.3: EMA Teacher Latent Target         0.956265      262.1    11903    7627.2     7762     0
+
+Melhor:  EXP-029.3: EMA Teacher Latent Target  val_bpb = 0.956265
+Pior:    EXP-029.1: Layer-6 To Layer-12 Same-Token Prediction  val_bpb = 1.106110
+Delta:   0.149845 bpb
+
+================================================================================
+  METRICAS DE CONVERGENCIA
+================================================================================
+Config                                       loss_i   loss_f     drop   drop/min  avg_tok/s  loss/Mtok
+------------------------------------------------------------------------------------------------------
+EXP-029.1: Layer-6 To Layer-12 Same-Token Prediction   10.398    3.311    7.087     0.0686      41798     0.0270
+EXP-029.2: Next-Token Latent Prediction      10.398    3.311    7.087     0.0685      41774     0.0270
+EXP-029.3: EMA Teacher Latent Target         10.398    3.316    7.081     0.0557      33986     0.0270
+
+  Loss por step (comparacao direta):
+    Step EXP-029.1: Layer-6 To Layer-12 Same-Token Prediction EXP-029.2: Next-Token Latent Prediction EXP-029.3: EMA Teacher Latent Target
+  ----------------------------------------------------------------------------------------------------------------------------------------
+       5                         8.6664                         9.5717                         9.5376
+      10                         7.4882                         8.4589                         8.6344
+      25                         6.3011                         6.6115                         6.7564
+      50                         5.6265                         5.5323                         5.8378
+     100                         4.7844                         4.6342                         4.8814
+
+  Tempo acumulado por step (s):
+    Step EXP-029.1: Layer-6 To Layer-12 Same-Token Prediction EXP-029.2: Next-Token Latent Prediction EXP-029.3: EMA Teacher Latent Target
+  ----------------------------------------------------------------------------------------------------------------------------------------
+       5                           38.0                           39.7                           47.9
+      10                           69.3                           71.0                           86.3
+      25                          163.4                          165.1                          202.1
+      50                          320.4                          322.1                          395.1
+     100                          634.4                          636.3                          781.4
