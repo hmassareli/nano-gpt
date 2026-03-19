@@ -1,0 +1,154 @@
+
+============================================================
+  BENCHMARK: 3 configs x 1000 steps  (quick-eval)
+  Log: /workspace/nano-gpt/benchmark_logs/bench_exp029-1_exp029-2_exp029-3_0319_0834_1000steps.log
+============================================================
+
+------------------------------------------------------------
+  [1/3] EXP-029.1: Layer-6 To Layer-12 Same-Token Prediction  (1000 steps)
+------------------------------------------------------------
+
+Model params: 287,048,856
+Param breakdown: {'wte': 25165824, 'value_embeds': 150994944, 'lm_head': 25165824, 'transformer_matrices': 84935808, 'latent_predictor': 786432, 'scalars': 24, 'total': 287048856}
+Est. FLOPs/token: 690,100,992
+Scaling AdamW LRs by 1/sqrt(768/768) = 1.000000
+
+--- Training ---
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/experiments/train_exp029_1_jepa_latent.py", line 681, in <module>
+    optimizer.step()
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py", line 517, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/experiments/train_exp029_1_jepa_latent.py", line 533, in step
+    muon_step_fused(
+  File "/workspace/nano-gpt/experiments/train_exp029_1_jepa_latent.py", line 415, in muon_step_fused
+    momentum_buffer.lerp_(stacked_grads, 1 - momentum)
+RuntimeError: The size of tensor a (32) must match the size of tensor b (192) at non-singleton dimension 1
+  *** FALHOU (exit code 1) ***
+
+------------------------------------------------------------
+  [2/3] EXP-029.2: Next-Token Latent Prediction  (1000 steps)  ~56s restantes
+------------------------------------------------------------
+
+Model params: 287,048,856
+Param breakdown: {'wte': 25165824, 'value_embeds': 150994944, 'lm_head': 25165824, 'transformer_matrices': 84935808, 'latent_predictor': 786432, 'scalars': 24, 'total': 287048856}
+Est. FLOPs/token: 690,100,992
+Scaling AdamW LRs by 1/sqrt(768/768) = 1.000000
+
+--- Training ---
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/experiments/train_exp029_2_next_token_latent.py", line 681, in <module>
+    optimizer.step()
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py", line 517, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/experiments/train_exp029_2_next_token_latent.py", line 533, in step
+    muon_step_fused(
+  File "/workspace/nano-gpt/experiments/train_exp029_2_next_token_latent.py", line 415, in muon_step_fused
+    momentum_buffer.lerp_(stacked_grads, 1 - momentum)
+RuntimeError: The size of tensor a (32) must match the size of tensor b (192) at non-singleton dimension 1
+  *** FALHOU (exit code 1) ***
+
+------------------------------------------------------------
+  [3/3] EXP-029.3: EMA Teacher Latent Target  (1000 steps)  ~25s restantes
+------------------------------------------------------------
+
+EMA teacher initialized with momentum=0.996
+Model params: 287,048,856
+Param breakdown: {'wte': 25165824, 'value_embeds': 150994944, 'lm_head': 25165824, 'transformer_matrices': 84935808, 'latent_predictor': 786432, 'scalars': 24, 'total': 287048856}
+Est. FLOPs/token: 690,100,992
+Scaling AdamW LRs by 1/sqrt(768/768) = 1.000000
+
+--- Training ---
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/experiments/train_exp029_3_ema_teacher.py", line 702, in <module>
+    teacher_target = teacher.get_target(x).float()
+                     ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/experiments/train_exp029_3_ema_teacher.py", line 414, in get_target
+    return self.teacher.forward_backbone(idx, return_intermediate=False)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/experiments/train_exp029_3_ema_teacher.py", line 348, in forward_backbone
+    x = block(x, ve, cos_sin, self.window_sizes[i])
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/experiments/train_exp029_3_ema_teacher.py", line 150, in forward
+    x = x + self.attn(norm(x), ve, cos_sin, window_size)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/experiments/train_exp029_3_ema_teacher.py", line 111, in forward
+    y = fa3.flash_attn_func(q, k, v, causal=True, window_size=window_size)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/hub/models--kernels-community--flash-attn3/snapshots/6f7c28dd63263f03ef5dbc0a23cc2d9a084ee6c7/build/torch29-cxx11-cu128-x86_64-linux/flash_attn_interface.py", line 852, in flash_attn_func
+    return FlashAttnFunc.apply(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/autograd/function.py", line 581, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/hub/models--kernels-community--flash-attn3/snapshots/6f7c28dd63263f03ef5dbc0a23cc2d9a084ee6c7/build/torch29-cxx11-cu128-x86_64-linux/flash_attn_interface.py", line 557, in forward
+    out, softmax_lse, *rest = _flash_attn_forward(
+                              ^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/_library/custom_ops.py", line 676, in __call__
+    return self._opoverload(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/_ops.py", line 841, in __call__
+    return self._op(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/_library/autograd.py", line 111, in autograd_impl
+    result = forward_no_grad(*args, Metadata(keyset, keyword_only_args))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/_library/autograd.py", line 40, in forward_no_grad
+    result = op.redispatch(keyset & _C._after_autograd_keyset, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/_ops.py", line 848, in redispatch
+    return self._handle.redispatch_boxed(keyset, *args, **kwargs)  # type: ignore[return-value]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/_library/custom_ops.py", line 343, in backend_impl
+    result = self._backend_fns[device_type](*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/_compile.py", line 53, in inner
+    return disable_fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/_library/custom_ops.py", line 376, in wrapped_fn
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/hub/models--kernels-community--flash-attn3/snapshots/6f7c28dd63263f03ef5dbc0a23cc2d9a084ee6c7/build/torch29-cxx11-cu128-x86_64-linux/flash_attn_interface.py", line 88, in _flash_attn_forward
+    out, softmax_lse, out_accum, softmax_lse_accum = flash_attn_3_cuda.fwd(
+                                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/_ops.py", line 1255, in __call__
+    return self._op(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: query and value must have the same dtype
+  *** FALHOU (exit code 1) ***
+
+
+================================================================================
+  RESULTADOS  (1000 steps, quick-eval, total: 1.2 min)
+================================================================================
+Config                                        val_bpb   tokens_M  VRAM_MB  treino_s  total_s  exit
+--------------------------------------------------------------------------------------------------
+EXP-029.1: Layer-6 To Layer-12 Same-Token Prediction          -          -        -         -       28     1
+EXP-029.2: Next-Token Latent Prediction             -          -        -         -       21     1
+EXP-029.3: EMA Teacher Latent Target                -          -        -         -       21     1

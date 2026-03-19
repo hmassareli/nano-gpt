@@ -1,0 +1,62 @@
+
+============================================================
+  BENCHMARK: 3 configs x 1000 steps  (quick-eval)
+  Log: /workspace/nano-gpt/benchmark_logs/bench_exp029-1_exp029-2_exp029-3_0319_0840_1000steps.log
+============================================================
+
+------------------------------------------------------------
+  [1/3] EXP-029.1: Layer-6 To Layer-12 Same-Token Prediction  (1000 steps)
+------------------------------------------------------------
+
+Model params: 287,048,856
+Param breakdown: {'wte': 25165824, 'value_embeds': 150994944, 'lm_head': 25165824, 'transformer_matrices': 84935808, 'latent_predictor': 786432, 'scalars': 24, 'total': 287048856}
+Est. FLOPs/token: 690,100,992
+Scaling AdamW LRs by 1/sqrt(768/768) = 1.000000
+
+--- Training ---
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/experiments/train_exp029_1_jepa_latent.py", line 681, in <module>
+    optimizer.step()
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py", line 517, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/experiments/train_exp029_1_jepa_latent.py", line 533, in step
+    muon_step_fused(
+  File "/workspace/nano-gpt/experiments/train_exp029_1_jepa_latent.py", line 415, in muon_step_fused
+    momentum_buffer.lerp_(stacked_grads, 1 - momentum)
+RuntimeError: The size of tensor a (32) must match the size of tensor b (192) at non-singleton dimension 1
+  *** FALHOU (exit code 1) ***
+
+------------------------------------------------------------
+  [2/3] EXP-029.2: Next-Token Latent Prediction  (1000 steps)  ~36s restantes
+------------------------------------------------------------
+
+Model params: 287,048,856
+Param breakdown: {'wte': 25165824, 'value_embeds': 150994944, 'lm_head': 25165824, 'transformer_matrices': 84935808, 'latent_predictor': 786432, 'scalars': 24, 'total': 287048856}
+Est. FLOPs/token: 690,100,992
+Scaling AdamW LRs by 1/sqrt(768/768) = 1.000000
+
+--- Training ---
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/experiments/train_exp029_2_next_token_latent.py", line 681, in <module>
+    optimizer.step()
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py", line 517, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/.venv/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/experiments/train_exp029_2_next_token_latent.py", line 533, in step
+    muon_step_fused(
+  File "/workspace/nano-gpt/experiments/train_exp029_2_next_token_latent.py", line 415, in muon_step_fused
+    momentum_buffer.lerp_(stacked_grads, 1 - momentum)
+RuntimeError: The size of tensor a (32) must match the size of tensor b (192) at non-singleton dimension 1
+  *** FALHOU (exit code 1) ***
+
+------------------------------------------------------------
+  [3/3] EXP-029.3: EMA Teacher Latent Target  (1000 steps)  ~20s restantes
+------------------------------------------------------------
+

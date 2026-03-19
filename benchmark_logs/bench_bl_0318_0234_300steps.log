@@ -320,3 +320,67 @@ step 00266 (88.7%) | loss: 3.590883 | lrm: 0.18 | dt: 8356ms | tok/sec: 31,373 |
 step 00267 (89.0%) | loss: 3.586951 | lrm: 0.17 | dt: 8356ms | tok/sec: 31,370 | mfu: 3.6% | epoch: 1 | remaining: 8,388,608 tok    
 step 00268 (89.3%) | loss: 3.603575 | lrm: 0.17 | dt: 8357ms | tok/sec: 31,367 | mfu: 3.6% | epoch: 1 | remaining: 8,126,464 tok    
 step 00269 (89.7%) | loss: 3.605819 | lrm: 0.16 | dt: 8355ms | tok/sec: 31,373 | mfu: 3.6% | epoch: 1 | remaining: 7,864,320 tok    
+step 00270 (90.0%) | loss: 3.597597 | lrm: 0.16 | dt: 8489ms | tok/sec: 30,879 | mfu: 3.6% | epoch: 1 | remaining: 7,602,176 tok    
+  grads | backbone: 0.0761 | head: 0.0409 | survival: 1.8591 | head_effrank: 747.6 | rank_ratio: 0.730 | top10e: 8.9%
+step 00271 (90.3%) | loss: 3.616327 | lrm: 0.16 | dt: 8356ms | tok/sec: 31,372 | mfu: 3.6% | epoch: 1 | remaining: 7,340,032 tok    
+step 00272 (90.7%) | loss: 3.615230 | lrm: 0.15 | dt: 8355ms | tok/sec: 31,374 | mfu: 3.6% | epoch: 1 | remaining: 7,077,888 tok    
+step 00273 (91.0%) | loss: 3.613540 | lrm: 0.15 | dt: 8356ms | tok/sec: 31,370 | mfu: 3.6% | epoch: 1 | remaining: 6,815,744 tok    
+step 00274 (91.3%) | loss: 3.592557 | lrm: 0.14 | dt: 8356ms | tok/sec: 31,372 | mfu: 3.6% | epoch: 1 | remaining: 6,553,600 tok    
+step 00275 (91.7%) | loss: 3.584448 | lrm: 0.14 | dt: 8355ms | tok/sec: 31,375 | mfu: 3.6% | epoch: 1 | remaining: 6,291,456 tok    
+step 00276 (92.0%) | loss: 3.613324 | lrm: 0.14 | dt: 8356ms | tok/sec: 31,373 | mfu: 3.6% | epoch: 1 | remaining: 6,029,312 tok    
+step 00277 (92.3%) | loss: 3.618049 | lrm: 0.13 | dt: 8356ms | tok/sec: 31,372 | mfu: 3.6% | epoch: 1 | remaining: 5,767,168 tok    
+step 00278 (92.7%) | loss: 3.594032 | lrm: 0.13 | dt: 8355ms | tok/sec: 31,374 | mfu: 3.6% | epoch: 1 | remaining: 5,505,024 tok    
+step 00279 (93.0%) | loss: 3.592435 | lrm: 0.12 | dt: 8355ms | tok/sec: 31,374 | mfu: 3.6% | epoch: 1 | remaining: 5,242,880 tok    
+step 00280 (93.3%) | loss: 3.589352 | lrm: 0.12 | dt: 8489ms | tok/sec: 30,881 | mfu: 3.6% | epoch: 1 | remaining: 4,980,736 tok    
+  grads | backbone: 0.0752 | head: 0.0392 | survival: 1.9193 | head_effrank: 759.1 | rank_ratio: 0.741 | top10e: 8.4%
+step 00281 (93.7%) | loss: 3.576556 | lrm: 0.12 | dt: 8355ms | tok/sec: 31,374 | mfu: 3.6% | epoch: 1 | remaining: 4,718,592 tok    
+step 00282 (94.0%) | loss: 3.559895 | lrm: 0.11 | dt: 8356ms | tok/sec: 31,373 | mfu: 3.6% | epoch: 1 | remaining: 4,456,448 tok    
+step 00283 (94.3%) | loss: 3.539155 | lrm: 0.11 | dt: 8355ms | tok/sec: 31,374 | mfu: 3.6% | epoch: 1 | remaining: 4,194,304 tok    
+step 00284 (94.7%) | loss: 3.542434 | lrm: 0.10 | dt: 8356ms | tok/sec: 31,372 | mfu: 3.6% | epoch: 1 | remaining: 3,932,160 tok    
+step 00285 (95.0%) | loss: 3.555809 | lrm: 0.10 | dt: 8355ms | tok/sec: 31,376 | mfu: 3.6% | epoch: 1 | remaining: 3,670,016 tok    
+step 00286 (95.3%) | loss: 3.565864 | lrm: 0.10 | dt: 8355ms | tok/sec: 31,375 | mfu: 3.6% | epoch: 1 | remaining: 3,407,872 tok    
+step 00287 (95.7%) | loss: 3.581344 | lrm: 0.09 | dt: 8355ms | tok/sec: 31,375 | mfu: 3.6% | epoch: 1 | remaining: 3,145,728 tok    
+step 00288 (96.0%) | loss: 3.556302 | lrm: 0.09 | dt: 8356ms | tok/sec: 31,371 | mfu: 3.6% | epoch: 1 | remaining: 2,883,584 tok    
+step 00289 (96.3%) | loss: 3.560637 | lrm: 0.08 | dt: 8356ms | tok/sec: 31,372 | mfu: 3.6% | epoch: 1 | remaining: 2,621,440 tok    
+step 00290 (96.7%) | loss: 3.566463 | lrm: 0.08 | dt: 8488ms | tok/sec: 30,883 | mfu: 3.6% | epoch: 1 | remaining: 2,359,296 tok    
+  grads | backbone: 0.0739 | head: 0.0393 | survival: 1.8832 | head_effrank: 759.2 | rank_ratio: 0.741 | top10e: 8.5%
+step 00291 (97.0%) | loss: 3.567570 | lrm: 0.08 | dt: 8354ms | tok/sec: 31,377 | mfu: 3.6% | epoch: 1 | remaining: 2,097,152 tok    
+step 00292 (97.3%) | loss: 3.565963 | lrm: 0.07 | dt: 8356ms | tok/sec: 31,373 | mfu: 3.6% | epoch: 1 | remaining: 1,835,008 tok    
+step 00293 (97.7%) | loss: 3.565701 | lrm: 0.07 | dt: 8355ms | tok/sec: 31,374 | mfu: 3.6% | epoch: 1 | remaining: 1,572,864 tok    
+step 00294 (98.0%) | loss: 3.572899 | lrm: 0.06 | dt: 8355ms | tok/sec: 31,374 | mfu: 3.6% | epoch: 1 | remaining: 1,310,720 tok    
+step 00295 (98.3%) | loss: 3.570727 | lrm: 0.06 | dt: 8356ms | tok/sec: 31,371 | mfu: 3.6% | epoch: 1 | remaining: 1,048,576 tok    
+step 00296 (98.7%) | loss: 3.540894 | lrm: 0.06 | dt: 8355ms | tok/sec: 31,376 | mfu: 3.6% | epoch: 1 | remaining: 786,432 tok    
+step 00297 (99.0%) | loss: 3.521655 | lrm: 0.05 | dt: 8355ms | tok/sec: 31,375 | mfu: 3.6% | epoch: 1 | remaining: 524,288 tok    
+step 00298 (99.3%) | loss: 3.518596 | lrm: 0.05 | dt: 8355ms | tok/sec: 31,374 | mfu: 3.6% | epoch: 1 | remaining: 262,144 tok    
+step 00299 (99.7%) | loss: 3.533944 | lrm: 0.04 | dt: 8356ms | tok/sec: 31,370 | mfu: 3.6% | epoch: 1 | remaining: 0 tok    
+
+---
+val_bpb:          1.021438
+training_seconds: 2418.6
+total_seconds:    2523.9
+peak_vram_mb:     15603.1
+mfu_percent:      3.62
+total_tokens_M:   78.6
+num_steps:        300
+num_params_M:     419.4
+depth:            12
+
+
+================================================================================
+  RESULTADOS  (300 steps, quick-eval, total: 42.3 min)
+================================================================================
+Config                                        val_bpb   tokens_M  VRAM_MB  treino_s  total_s  exit
+--------------------------------------------------------------------------------------------------
+Baseline                                     1.021438       78.6    15603    2418.6     2536     0
+
+Melhor:  Baseline  val_bpb = 1.021438
+Pior:    Baseline  val_bpb = 1.021438
+Delta:   0.000000 bpb
+(delta pequeno — considere rodar com mais steps para confirmar)
+
+================================================================================
+  METRICAS DE CONVERGENCIA
+================================================================================
+Config                                       loss_i   loss_f     drop   drop/min  avg_tok/s  loss/Mtok
+------------------------------------------------------------------------------------------------------
+Baseline                                     10.398    3.534    6.864     0.1703      31320     0.0873

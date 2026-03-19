@@ -1,0 +1,89 @@
+
+============================================================
+  BENCHMARK: 3 configs x 1000 steps  (quick-eval)
+  Log: /workspace/nano-gpt/benchmark_logs/bench_exp029-1_exp029-2_exp029-3_0319_0852_1000steps.log
+============================================================
+
+------------------------------------------------------------
+  [1/3] EXP-029.1: Layer-6 To Layer-12 Same-Token Prediction  (1000 steps)
+------------------------------------------------------------
+
+Model params: 287,048,856
+Param breakdown: {'wte': 25165824, 'value_embeds': 150994944, 'lm_head': 25165824, 'transformer_matrices': 84935808, 'latent_predictor': 786432, 'scalars': 24, 'total': 287048856}
+Est. FLOPs/token: 690,100,992
+Scaling AdamW LRs by 1/sqrt(768/768) = 1.000000
+Gradient accumulation steps: 32
+Eval batch size: 4
+Token budget: 262,144,000
+
+--- Training ---
+step 00000 (0.0%) | loss: 46.397408 | lrm: 1.00 | dt: 6806ms | tok/sec: 38,519 | mfu: 2.7% | epoch: 1 | remaining: 261,881,856 tok    
+  grads | backbone: 0.0538 | head: 0.3065 | survival: 0.1755 | head_effrank: 249.2 | rank_ratio: 0.324 | top10e: 30.6%
+step 00001 (0.1%) | loss: 27.699610 | lrm: 1.00 | dt: 6225ms | tok/sec: 42,112 | mfu: 2.9% | epoch: 1 | remaining: 261,619,712 tok    
+step 00002 (0.2%) | loss: 21.211747 | lrm: 1.00 | dt: 6229ms | tok/sec: 42,086 | mfu: 2.9% | epoch: 1 | remaining: 261,357,568 tok    
+step 00003 (0.3%) | loss: 18.007296 | lrm: 1.00 | dt: 6233ms | tok/sec: 42,054 | mfu: 2.9% | epoch: 1 | remaining: 261,095,424 tok    
+step 00004 (0.4%) | loss: 15.738042 | lrm: 1.00 | dt: 6238ms | tok/sec: 42,022 | mfu: 2.9% | epoch: 1 | remaining: 260,833,280 tok    
+step 00005 (0.5%) | loss: 14.084042 | lrm: 1.00 | dt: 6242ms | tok/sec: 41,999 | mfu: 2.9% | epoch: 1 | remaining: 260,571,136 tok    
+step 00006 (0.6%) | loss: 12.908598 | lrm: 1.00 | dt: 6243ms | tok/sec: 41,990 | mfu: 2.9% | epoch: 1 | remaining: 260,308,992 tok    
+step 00007 (0.7%) | loss: 12.060030 | lrm: 1.00 | dt: 6245ms | tok/sec: 41,974 | mfu: 2.9% | epoch: 1 | remaining: 260,046,848 tok    
+step 00008 (0.8%) | loss: 11.321648 | lrm: 1.00 | dt: 6254ms | tok/sec: 41,917 | mfu: 2.9% | epoch: 1 | remaining: 259,784,704 tok    
+step 00009 (0.9%) | loss: 10.729470 | lrm: 1.00 | dt: 6255ms | tok/sec: 41,907 | mfu: 2.9% | epoch: 1 | remaining: 259,522,560 tok    
+step 00010 (1.0%) | loss: 10.211559 | lrm: 1.00 | dt: 6259ms | tok/sec: 41,881 | mfu: 2.9% | epoch: 1 | remaining: 259,260,416 tok    
+step 00011 (1.1%) | loss: 9.771372 | lrm: 1.00 | dt: 6261ms | tok/sec: 41,871 | mfu: 2.9% | epoch: 1 | remaining: 258,998,272 tok    
+step 00012 (1.2%) | loss: 9.384233 | lrm: 1.00 | dt: 6262ms | tok/sec: 41,861 | mfu: 2.9% | epoch: 1 | remaining: 258,736,128 tok    
+step 00013 (1.3%) | loss: 9.043481 | lrm: 1.00 | dt: 6263ms | tok/sec: 41,859 | mfu: 2.9% | epoch: 1 | remaining: 258,473,984 tok    
+step 00014 (1.4%) | loss: 8.745473 | lrm: 1.00 | dt: 6264ms | tok/sec: 41,848 | mfu: 2.9% | epoch: 1 | remaining: 258,211,840 tok    
+step 00015 (1.5%) | loss: 8.480553 | lrm: 1.00 | dt: 6265ms | tok/sec: 41,842 | mfu: 2.9% | epoch: 1 | remaining: 257,949,696 tok    
+step 00016 (1.6%) | loss: 8.245117 | lrm: 1.00 | dt: 6266ms | tok/sec: 41,838 | mfu: 2.9% | epoch: 1 | remaining: 257,687,552 tok    
+step 00017 (1.7%) | loss: 8.030143 | lrm: 1.00 | dt: 6265ms | tok/sec: 41,839 | mfu: 2.9% | epoch: 1 | remaining: 257,425,408 tok    
+step 00018 (1.8%) | loss: 7.838192 | lrm: 1.00 | dt: 6267ms | tok/sec: 41,831 | mfu: 2.9% | epoch: 1 | remaining: 257,163,264 tok    
+step 00019 (1.9%) | loss: 7.660890 | lrm: 1.00 | dt: 6268ms | tok/sec: 41,819 | mfu: 2.9% | epoch: 1 | remaining: 256,901,120 tok    
+step 00020 (2.0%) | loss: 7.506192 | lrm: 1.00 | dt: 6355ms | tok/sec: 41,248 | mfu: 2.9% | epoch: 1 | remaining: 256,638,976 tok    
+  grads | backbone: 0.0630 | head: 0.0965 | survival: 0.6528 | head_effrank: 398.9 | rank_ratio: 0.519 | top10e: 20.2%
+step 00021 (2.1%) | loss: 7.366918 | lrm: 1.00 | dt: 6268ms | tok/sec: 41,821 | mfu: 2.9% | epoch: 1 | remaining: 256,376,832 tok    
+step 00022 (2.2%) | loss: 7.240187 | lrm: 1.00 | dt: 6269ms | tok/sec: 41,814 | mfu: 2.9% | epoch: 1 | remaining: 256,114,688 tok    
+step 00023 (2.3%) | loss: 7.121734 | lrm: 1.00 | dt: 6269ms | tok/sec: 41,815 | mfu: 2.9% | epoch: 1 | remaining: 255,852,544 tok    
+step 00024 (2.4%) | loss: 7.013979 | lrm: 1.00 | dt: 6270ms | tok/sec: 41,806 | mfu: 2.9% | epoch: 1 | remaining: 255,590,400 tok    
+step 00025 (2.5%) | loss: 6.916853 | lrm: 1.00 | dt: 6271ms | tok/sec: 41,802 | mfu: 2.9% | epoch: 1 | remaining: 255,328,256 tok    
+step 00026 (2.6%) | loss: 6.829273 | lrm: 1.00 | dt: 6271ms | tok/sec: 41,804 | mfu: 2.9% | epoch: 1 | remaining: 255,066,112 tok    
+step 00027 (2.7%) | loss: 6.750796 | lrm: 1.00 | dt: 6270ms | tok/sec: 41,806 | mfu: 2.9% | epoch: 1 | remaining: 254,803,968 tok    
+step 00028 (2.8%) | loss: 6.678732 | lrm: 1.00 | dt: 6271ms | tok/sec: 41,803 | mfu: 2.9% | epoch: 1 | remaining: 254,541,824 tok    
+step 00029 (2.9%) | loss: 6.611087 | lrm: 1.00 | dt: 6270ms | tok/sec: 41,807 | mfu: 2.9% | epoch: 1 | remaining: 254,279,680 tok    
+step 00030 (3.0%) | loss: 6.545930 | lrm: 1.00 | dt: 6271ms | tok/sec: 41,805 | mfu: 2.9% | epoch: 1 | remaining: 254,017,536 tok    
+step 00031 (3.1%) | loss: 6.486175 | lrm: 1.00 | dt: 6272ms | tok/sec: 41,796 | mfu: 2.9% | epoch: 1 | remaining: 253,755,392 tok    
+step 00032 (3.2%) | loss: 6.428891 | lrm: 1.00 | dt: 6271ms | tok/sec: 41,801 | mfu: 2.9% | epoch: 1 | remaining: 253,493,248 tok    
+step 00033 (3.3%) | loss: 6.376162 | lrm: 1.00 | dt: 6275ms | tok/sec: 41,773 | mfu: 2.9% | epoch: 1 | remaining: 253,231,104 tok    
+step 00034 (3.4%) | loss: 6.330787 | lrm: 1.00 | dt: 6277ms | tok/sec: 41,765 | mfu: 2.9% | epoch: 1 | remaining: 252,968,960 tok    
+step 00035 (3.5%) | loss: 6.284628 | lrm: 1.00 | dt: 6286ms | tok/sec: 41,706 | mfu: 2.9% | epoch: 1 | remaining: 252,706,816 tok    
+step 00036 (3.6%) | loss: 6.241012 | lrm: 1.00 | dt: 6278ms | tok/sec: 41,757 | mfu: 2.9% | epoch: 1 | remaining: 252,444,672 tok    
+step 00037 (3.7%) | loss: 6.203663 | lrm: 1.00 | dt: 6278ms | tok/sec: 41,758 | mfu: 2.9% | epoch: 1 | remaining: 252,182,528 tok    
+step 00038 (3.8%) | loss: 6.165501 | lrm: 1.00 | dt: 6277ms | tok/sec: 41,765 | mfu: 2.9% | epoch: 1 | remaining: 251,920,384 tok    
+step 00039 (3.9%) | loss: 6.129270 | lrm: 1.00 | dt: 6277ms | tok/sec: 41,765 | mfu: 2.9% | epoch: 1 | remaining: 251,658,240 tok    
+step 00040 (4.0%) | loss: 6.092922 | lrm: 1.00 | dt: 6366ms | tok/sec: 41,177 | mfu: 2.9% | epoch: 1 | remaining: 251,396,096 tok    
+  grads | backbone: 0.0509 | head: 0.0723 | survival: 0.7036 | head_effrank: 390.7 | rank_ratio: 0.509 | top10e: 17.5%
+step 00041 (4.1%) | loss: 6.054505 | lrm: 1.00 | dt: 6277ms | tok/sec: 41,765 | mfu: 2.9% | epoch: 1 | remaining: 251,133,952 tok    
+step 00042 (4.2%) | loss: 6.022224 | lrm: 1.00 | dt: 6277ms | tok/sec: 41,764 | mfu: 2.9% | epoch: 1 | remaining: 250,871,808 tok    
+step 00043 (4.3%) | loss: 5.989594 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,769 | mfu: 2.9% | epoch: 1 | remaining: 250,609,664 tok    
+step 00044 (4.4%) | loss: 5.956700 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,771 | mfu: 2.9% | epoch: 1 | remaining: 250,347,520 tok    
+step 00045 (4.5%) | loss: 5.922634 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,770 | mfu: 2.9% | epoch: 1 | remaining: 250,085,376 tok    
+step 00046 (4.6%) | loss: 5.891598 | lrm: 1.00 | dt: 6278ms | tok/sec: 41,757 | mfu: 2.9% | epoch: 1 | remaining: 249,823,232 tok    
+step 00047 (4.7%) | loss: 5.860149 | lrm: 1.00 | dt: 6275ms | tok/sec: 41,774 | mfu: 2.9% | epoch: 1 | remaining: 249,561,088 tok    
+step 00048 (4.8%) | loss: 5.829652 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,768 | mfu: 2.9% | epoch: 1 | remaining: 249,298,944 tok    
+step 00049 (4.9%) | loss: 5.800928 | lrm: 1.00 | dt: 6275ms | tok/sec: 41,776 | mfu: 2.9% | epoch: 1 | remaining: 249,036,800 tok    
+step 00050 (5.0%) | loss: 5.773663 | lrm: 1.00 | dt: 6275ms | tok/sec: 41,773 | mfu: 2.9% | epoch: 1 | remaining: 248,774,656 tok    
+step 00051 (5.1%) | loss: 5.744881 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,767 | mfu: 2.9% | epoch: 1 | remaining: 248,512,512 tok    
+step 00052 (5.2%) | loss: 5.712596 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,769 | mfu: 2.9% | epoch: 1 | remaining: 248,250,368 tok    
+step 00053 (5.3%) | loss: 5.685151 | lrm: 1.00 | dt: 6277ms | tok/sec: 41,765 | mfu: 2.9% | epoch: 1 | remaining: 247,988,224 tok    
+step 00054 (5.4%) | loss: 5.658475 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,772 | mfu: 2.9% | epoch: 1 | remaining: 247,726,080 tok    
+step 00055 (5.5%) | loss: 5.633630 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,770 | mfu: 2.9% | epoch: 1 | remaining: 247,463,936 tok    
+step 00056 (5.6%) | loss: 5.606794 | lrm: 1.00 | dt: 6275ms | tok/sec: 41,773 | mfu: 2.9% | epoch: 1 | remaining: 247,201,792 tok    
+step 00057 (5.7%) | loss: 5.582307 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,772 | mfu: 2.9% | epoch: 1 | remaining: 246,939,648 tok    
+step 00058 (5.8%) | loss: 5.557040 | lrm: 1.00 | dt: 6277ms | tok/sec: 41,761 | mfu: 2.9% | epoch: 1 | remaining: 246,677,504 tok    
+step 00059 (5.9%) | loss: 5.533993 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,767 | mfu: 2.9% | epoch: 1 | remaining: 246,415,360 tok    
+step 00060 (6.0%) | loss: 5.507263 | lrm: 1.00 | dt: 6363ms | tok/sec: 41,197 | mfu: 2.9% | epoch: 1 | remaining: 246,153,216 tok    
+  grads | backbone: 0.0874 | head: 0.0783 | survival: 1.1154 | head_effrank: 363.1 | rank_ratio: 0.473 | top10e: 17.8%
+step 00061 (6.1%) | loss: 5.479847 | lrm: 1.00 | dt: 6275ms | tok/sec: 41,778 | mfu: 2.9% | epoch: 1 | remaining: 245,891,072 tok    
+step 00062 (6.2%) | loss: 5.457724 | lrm: 1.00 | dt: 6275ms | tok/sec: 41,774 | mfu: 2.9% | epoch: 1 | remaining: 245,628,928 tok    
+step 00063 (6.3%) | loss: 5.438395 | lrm: 1.00 | dt: 6275ms | tok/sec: 41,773 | mfu: 2.9% | epoch: 1 | remaining: 245,366,784 tok    
+step 00064 (6.4%) | loss: 5.415023 | lrm: 1.00 | dt: 6288ms | tok/sec: 41,687 | mfu: 2.9% | epoch: 1 | remaining: 245,104,640 tok    
+step 00065 (6.5%) | loss: 5.392486 | lrm: 1.00 | dt: 6276ms | tok/sec: 41,769 | mfu: 2.9% | epoch: 1 | remaining: 244,842,496 tok    

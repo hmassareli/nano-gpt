@@ -1,0 +1,46 @@
+
+============================================================
+  BENCHMARK: 4 configs x 1000 steps  (quick-eval)
+  Log: /workspace/nano-gpt/benchmark_logs/bench_exp029-1_exp029-2_exp029-3_bl_0319_0351_1000steps.log
+============================================================
+
+------------------------------------------------------------
+  [1/4] Baseline  (1000 steps)
+------------------------------------------------------------
+
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/train.py", line 528, in <module>
+    tokenizer = Tokenizer.from_directory()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/prepare.py", line 238, in from_directory
+    with open(os.path.join(tokenizer_dir, "tokenizer.pkl"), "rb") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/root/.cache/autoresearch/tokenizer/tokenizer.pkl'
+  *** FALHOU (exit code 1) ***
+
+------------------------------------------------------------
+  [2/4] EXP-029.1: Layer-6 To Layer-12 Same-Token Prediction  (1000 steps)  ~2min restantes
+------------------------------------------------------------
+
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/experiments/train_exp029_1_jepa_latent.py", line 594, in <module>
+    tokenizer = Tokenizer()
+                ^^^^^^^^^^^
+TypeError: Tokenizer.__init__() missing 1 required positional argument: 'enc'
+  *** FALHOU (exit code 1) ***
+
+------------------------------------------------------------
+  [3/4] EXP-029.2: Next-Token Latent Prediction  (1000 steps)  ~49s restantes
+------------------------------------------------------------
+
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/experiments/train_exp029_2_next_token_latent.py", line 594, in <module>
+    tokenizer = Tokenizer()
+                ^^^^^^^^^^^
+TypeError: Tokenizer.__init__() missing 1 required positional argument: 'enc'
+  *** FALHOU (exit code 1) ***
+
+------------------------------------------------------------
+  [4/4] EXP-029.3: EMA Teacher Latent Target  (1000 steps)  ~22s restantes
+------------------------------------------------------------
+
