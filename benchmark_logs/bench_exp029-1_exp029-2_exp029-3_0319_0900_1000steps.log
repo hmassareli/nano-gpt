@@ -1934,3 +1934,12 @@ step 00798 (79.8%) | loss: 3.375066 | ce: 3.375005 | latent: 1.000000 | lrm: 1.0
 step 00799 (79.9%) | loss: 3.376063 | ce: 3.376002 | latent: 1.000000 | lrm: 1.00 | dt: 6267ms | tok/sec: 41,829 | mfu: 2.9% | epoch: 1 | remaining: 52,428,800 tok    
 step 00800 (80.0%) | loss: 3.373971 | ce: 3.373910 | latent: 1.000000 | lrm: 1.00 | dt: 6352ms | tok/sec: 41,270 | mfu: 2.9% | epoch: 1 | remaining: 52,166,656 tok    
   grads | backbone: 0.0877 | head: 0.0467 | survival: 1.8788 | head_effrank: 506.6 | rank_ratio: 0.660 | top10e: 14.3%
+step 00801 (80.1%) | loss: 3.375124 | ce: 3.375063 | latent: 1.000000 | lrm: 1.00 | dt: 6278ms | tok/sec: 41,756 | mfu: 2.9% | epoch: 1 | remaining: 51,904,512 tok    
+step 00802 (80.2%) | loss: 3.371792 | ce: 3.371731 | latent: 1.000000 | lrm: 1.00 | dt: 6267ms | tok/sec: 41,830 | mfu: 2.9% | epoch: 1 | remaining: 51,642,368 tok    
+step 00803 (80.3%) | loss: 3.369098 | ce: 3.369037 | latent: 1.000000 | lrm: 1.00 | dt: 6266ms | tok/sec: 41,834 | mfu: 2.9% | epoch: 1 | remaining: 51,380,224 tok    
+step 00804 (80.4%) | loss: 3.366419 | ce: 3.366358 | latent: 1.000000 | lrm: 1.00 | dt: 6267ms | tok/sec: 41,829 | mfu: 2.9% | epoch: 1 | remaining: 51,118,080 tok    
+step 00805 (80.5%) | loss: 3.369009 | ce: 3.368948 | latent: 1.000000 | lrm: 1.00 | dt: 6266ms | tok/sec: 41,834 | mfu: 2.9% | epoch: 1 | remaining: 50,855,936 tok    
+step 00806 (80.6%) | loss: 3.374187 | ce: 3.374126 | latent: 1.000000 | lrm: 1.00 | dt: 6267ms | tok/sec: 41,832 | mfu: 2.9% | epoch: 1 | remaining: 50,593,792 tok    
+step 00807 (80.7%) | loss: 3.373390 | ce: 3.373329 | latent: 1.000000 | lrm: 1.00 | dt: 6267ms | tok/sec: 41,832 | mfu: 2.9% | epoch: 1 | remaining: 50,331,648 tok    
+step 00808 (80.8%) | loss: 3.375097 | ce: 3.375036 | latent: 1.000000 | lrm: 1.00 | dt: 6268ms | tok/sec: 41,824 | mfu: 2.9% | epoch: 1 | remaining: 50,069,504 tok    
+step 00809 (80.9%) | loss: 3.375481 | ce: 3.375420 | latent: 1.000000 | lrm: 1.00 | dt: 6266ms | tok/sec: 41,837 | mfu: 2.9% | epoch: 1 | remaining: 49,807,360 tok    
