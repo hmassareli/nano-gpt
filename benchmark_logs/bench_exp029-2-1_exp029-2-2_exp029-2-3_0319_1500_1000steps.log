@@ -2519,3 +2519,27 @@ step 00331 (33.1%) | loss: 3.683095 | ce: 3.683036 | latent: 0.999998 | latent_l
 step 00332 (33.2%) | loss: 3.680062 | ce: 3.680003 | latent: 0.999997 | latent_lambda: 0.4834 | lrm: 1.00 | dt: 6322ms | tok/sec: 41,468 | mfu: 2.9% | epoch: 1 | remaining: 174,850,048 tok    
 step 00333 (33.3%) | loss: 3.678387 | ce: 3.678328 | latent: 0.999997 | latent_lambda: 0.4827 | lrm: 1.00 | dt: 6314ms | tok/sec: 41,520 | mfu: 2.9% | epoch: 1 | remaining: 174,587,904 tok    
 step 00334 (33.4%) | loss: 3.676886 | ce: 3.676827 | latent: 0.999997 | latent_lambda: 0.4820 | lrm: 1.00 | dt: 6314ms | tok/sec: 41,517 | mfu: 2.9% | epoch: 1 | remaining: 174,325,760 tok    
+step 00335 (33.5%) | loss: 3.673967 | ce: 3.673908 | latent: 0.999997 | latent_lambda: 0.4813 | lrm: 1.00 | dt: 6306ms | tok/sec: 41,573 | mfu: 2.9% | epoch: 1 | remaining: 174,063,616 tok    
+step 00336 (33.6%) | loss: 3.676042 | ce: 3.675983 | latent: 0.999997 | latent_lambda: 0.4806 | lrm: 1.00 | dt: 6332ms | tok/sec: 41,400 | mfu: 2.9% | epoch: 1 | remaining: 173,801,472 tok    
+step 00337 (33.7%) | loss: 3.674296 | ce: 3.674238 | latent: 0.999997 | latent_lambda: 0.4799 | lrm: 1.00 | dt: 6340ms | tok/sec: 41,346 | mfu: 2.9% | epoch: 1 | remaining: 173,539,328 tok    
+step 00338 (33.8%) | loss: 3.675756 | ce: 3.675698 | latent: 0.999997 | latent_lambda: 0.4792 | lrm: 1.00 | dt: 6318ms | tok/sec: 41,491 | mfu: 2.9% | epoch: 1 | remaining: 173,277,184 tok    
+step 00339 (33.9%) | loss: 3.673278 | ce: 3.673219 | latent: 0.999997 | latent_lambda: 0.4785 | lrm: 1.00 | dt: 6326ms | tok/sec: 41,436 | mfu: 2.9% | epoch: 1 | remaining: 173,015,040 tok    
+step 00340 (34.0%) | loss: 3.674130 | ce: 3.674072 | latent: 0.999997 | latent_lambda: 0.4778 | lrm: 1.00 | dt: 6398ms | tok/sec: 40,969 | mfu: 2.9% | epoch: 1 | remaining: 172,752,896 tok    
+  grads | backbone: 0.0830 | head: 0.0436 | survival: 1.9048 | head_effrank: 564.6 | rank_ratio: 0.735 | top10e: 10.9%
+step 00341 (34.1%) | loss: 3.674444 | ce: 3.674386 | latent: 0.999997 | latent_lambda: 0.4771 | lrm: 1.00 | dt: 6310ms | tok/sec: 41,546 | mfu: 2.9% | epoch: 1 | remaining: 172,490,752 tok    
+step 00342 (34.2%) | loss: 3.672873 | ce: 3.672815 | latent: 0.999997 | latent_lambda: 0.4764 | lrm: 1.00 | dt: 6308ms | tok/sec: 41,560 | mfu: 2.9% | epoch: 1 | remaining: 172,228,608 tok    
+step 00343 (34.3%) | loss: 3.672706 | ce: 3.672648 | latent: 0.999997 | latent_lambda: 0.4756 | lrm: 1.00 | dt: 6314ms | tok/sec: 41,517 | mfu: 2.9% | epoch: 1 | remaining: 171,966,464 tok    
+step 00344 (34.4%) | loss: 3.670596 | ce: 3.670538 | latent: 0.999997 | latent_lambda: 0.4749 | lrm: 1.00 | dt: 6304ms | tok/sec: 41,582 | mfu: 2.9% | epoch: 1 | remaining: 171,704,320 tok    
+step 00345 (34.5%) | loss: 3.665884 | ce: 3.665826 | latent: 0.999997 | latent_lambda: 0.4742 | lrm: 1.00 | dt: 6315ms | tok/sec: 41,508 | mfu: 2.9% | epoch: 1 | remaining: 171,442,176 tok    
+step 00346 (34.6%) | loss: 3.669151 | ce: 3.669094 | latent: 0.999997 | latent_lambda: 0.4735 | lrm: 1.00 | dt: 6312ms | tok/sec: 41,533 | mfu: 2.9% | epoch: 1 | remaining: 171,180,032 tok    
+step 00347 (34.7%) | loss: 3.667684 | ce: 3.667626 | latent: 0.999997 | latent_lambda: 0.4728 | lrm: 1.00 | dt: 6301ms | tok/sec: 41,605 | mfu: 2.9% | epoch: 1 | remaining: 170,917,888 tok    
+step 00348 (34.8%) | loss: 3.665685 | ce: 3.665627 | latent: 0.999997 | latent_lambda: 0.4721 | lrm: 1.00 | dt: 6310ms | tok/sec: 41,547 | mfu: 2.9% | epoch: 1 | remaining: 170,655,744 tok    
+step 00349 (34.9%) | loss: 3.666726 | ce: 3.666668 | latent: 0.999997 | latent_lambda: 0.4714 | lrm: 1.00 | dt: 6316ms | tok/sec: 41,501 | mfu: 2.9% | epoch: 1 | remaining: 170,393,600 tok    
+step 00350 (35.0%) | loss: 3.664433 | ce: 3.664376 | latent: 0.999997 | latent_lambda: 0.4707 | lrm: 1.00 | dt: 6317ms | tok/sec: 41,498 | mfu: 2.9% | epoch: 1 | remaining: 170,131,456 tok    
+step 00351 (35.1%) | loss: 3.665699 | ce: 3.665641 | latent: 0.999997 | latent_lambda: 0.4700 | lrm: 1.00 | dt: 6313ms | tok/sec: 41,527 | mfu: 2.9% | epoch: 1 | remaining: 169,869,312 tok    
+step 00352 (35.2%) | loss: 3.667675 | ce: 3.667618 | latent: 0.999997 | latent_lambda: 0.4693 | lrm: 1.00 | dt: 6309ms | tok/sec: 41,551 | mfu: 2.9% | epoch: 1 | remaining: 169,607,168 tok    
+step 00353 (35.3%) | loss: 3.668574 | ce: 3.668516 | latent: 0.999997 | latent_lambda: 0.4685 | lrm: 1.00 | dt: 6317ms | tok/sec: 41,496 | mfu: 2.9% | epoch: 1 | remaining: 169,345,024 tok    
+step 00354 (35.4%) | loss: 3.667659 | ce: 3.667601 | latent: 0.999997 | latent_lambda: 0.4678 | lrm: 1.00 | dt: 6333ms | tok/sec: 41,393 | mfu: 2.9% | epoch: 1 | remaining: 169,082,880 tok    
+step 00355 (35.5%) | loss: 3.667446 | ce: 3.667389 | latent: 0.999997 | latent_lambda: 0.4671 | lrm: 1.00 | dt: 6342ms | tok/sec: 41,335 | mfu: 2.9% | epoch: 1 | remaining: 168,820,736 tok    
+step 00356 (35.6%) | loss: 3.663758 | ce: 3.663701 | latent: 0.999997 | latent_lambda: 0.4664 | lrm: 1.00 | dt: 6348ms | tok/sec: 41,296 | mfu: 2.9% | epoch: 1 | remaining: 168,558,592 tok    
+step 00357 (35.7%) | loss: 3.663844 | ce: 3.663787 | latent: 0.999997 | latent_lambda: 0.4657 | lrm: 1.00 | dt: 6336ms | tok/sec: 41,373 | mfu: 2.9% | epoch: 1 | remaining: 168,296,448 tok    
