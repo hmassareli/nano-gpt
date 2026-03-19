@@ -3,7 +3,7 @@ Autoresearch pretraining script. Single-GPU, single-file.
 Cherry-picked and simplified from nanochat.
 Usage: uv run train.py
 """
-EXP_TITLE = "EXP-029.2: Next-Token Latent Prediction"
+EXP_TITLE = "EXP-005.2: Structured Positives For Contrastive Bypass"
 
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -14,8 +14,6 @@ import time
 import sys
 import inspect
 from dataclasses import dataclass, asdict
-import sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from grad_metrics import compute_grad_metrics
 
 import torch
 import torch.nn as nn
@@ -31,14 +29,12 @@ try:
 except Exception as exc:
     print(f"Warning: FlashAttention indisponivel ({exc}). Usando fallback de atencao nativo.")
 
-from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
+# Ensure root dir is on sys.path so `prepare` can be found when running from experiments/
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
-# ---------------------------------------------------------------------------
-# EXP-029.2 hyperparameters
-# ---------------------------------------------------------------------------
-SOURCE_LAYER = 6  # Predict from h_6
-LATENT_LOSS_LAMBDA = 0.5  # Weight for next-token latent prediction loss
-PREDICTOR_HIDDEN_DIM = 512  # Small MLP predictor
+from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 
 # ---------------------------------------------------------------------------
 # GPT Model
@@ -151,20 +147,6 @@ class Block(nn.Module):
         return x
 
 
-class LatentPredictor(nn.Module):
-    """Small MLP to predict next token's h_final from current h_source."""
-    def __init__(self, n_embd, hidden_dim):
-        super().__init__()
-        self.fc1 = nn.Linear(n_embd, hidden_dim, bias=False)
-        self.fc2 = nn.Linear(hidden_dim, n_embd, bias=False)
-    
-    def forward(self, x):
-        x = self.fc1(x)
-        x = F.gelu(x)
-        x = self.fc2(x)
-        return x
-
-
 class GPT(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -177,10 +159,6 @@ class GPT(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
-        
-        # EXP-029.2: Latent predictor for next-token prediction
-        self.latent_predictor = LatentPredictor(config.n_embd, PREDICTOR_HIDDEN_DIM)
-        
         # Value embeddings
         head_dim = config.n_embd // config.n_head
         kv_dim = config.n_kv_head * head_dim
@@ -212,11 +190,6 @@ class GPT(nn.Module):
         # Per-layer scalars
         self.resid_lambdas.fill_(1.0)
         self.x0_lambdas.fill_(0.1)
-        
-        # EXP-029.2: Init latent predictor
-        torch.nn.init.uniform_(self.latent_predictor.fc1.weight, -s, s)
-        torch.nn.init.zeros_(self.latent_predictor.fc2.weight)
-        
         # Value embeddings
         for ve in self.value_embeds.values():
             torch.nn.init.uniform_(ve.weight, -s, s)
@@ -279,13 +252,11 @@ class GPT(nn.Module):
         value_embeds = sum(p.numel() for p in self.value_embeds.parameters())
         lm_head = sum(p.numel() for p in self.lm_head.parameters())
         transformer_matrices = sum(p.numel() for p in self.transformer.h.parameters())
-        latent_predictor = sum(p.numel() for p in self.latent_predictor.parameters())
         scalars = self.resid_lambdas.numel() + self.x0_lambdas.numel()
-        total = wte + value_embeds + lm_head + transformer_matrices + latent_predictor + scalars
+        total = wte + value_embeds + lm_head + transformer_matrices + scalars
         return {
             'wte': wte, 'value_embeds': value_embeds, 'lm_head': lm_head,
-            'transformer_matrices': transformer_matrices, 'latent_predictor': latent_predictor,
-            'scalars': scalars, 'total': total,
+            'transformer_matrices': transformer_matrices, 'scalars': scalars, 'total': total,
         }
 
     def setup_optimizer(self, unembedding_lr=0.004, embedding_lr=0.2, matrix_lr=0.02,
@@ -297,20 +268,15 @@ class GPT(nn.Module):
         lm_head_params = list(self.lm_head.parameters())
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
-        predictor_params = list(self.latent_predictor.parameters())
-        
         assert len(list(self.parameters())) == (len(matrix_params) + len(embedding_params) +
-            len(lm_head_params) + len(value_embeds_params) + len(resid_params) + 
-            len(x0_params) + len(predictor_params))
-        
-        # Scale LR ∝ 1/√dmodel (tuned at 768 dim)
+            len(lm_head_params) + len(value_embeds_params) + len(resid_params) + len(x0_params))
+        # Scale LR â 1/âdmodel (tuned at 768 dim)
         dmodel_lr_scale = (model_dim / 768) ** -0.5
         print(f"Scaling AdamW LRs by 1/sqrt({model_dim}/768) = {dmodel_lr_scale:.6f}")
         param_groups = [
             dict(kind='adamw', params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=embedding_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=value_embeds_params, lr=0.5 * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=predictor_params, lr=0.02 * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=resid_params, lr=scalar_lr * 0.01, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=x0_params, lr=scalar_lr, betas=(0.9, 0.99), eps=1e-10, weight_decay=0.0),
         ]
@@ -325,7 +291,7 @@ class GPT(nn.Module):
             group["initial_lr"] = group["lr"]
         return optimizer
 
-    def forward_backbone(self, idx, return_intermediate=False):
+    def forward_backbone(self, idx):
         B, T = idx.size()
         assert T <= self.cos.size(1)
         cos_sin = self.cos[:, :T], self.sin[:, :T]
@@ -335,8 +301,6 @@ class GPT(nn.Module):
         x0 = x
         x_prev2 = x
         x_prev1 = x
-        
-        intermediate = None
         for i, block in enumerate(self.transformer.h):
             x = self.resid_lambdas[i] * x + self.x0_lambdas[i] * x0
             if i >= 2:
@@ -345,18 +309,10 @@ class GPT(nn.Module):
             x_prev1 = x
             ve = self.value_embeds[str(i)](idx) if str(i) in self.value_embeds else None
             x = block(x, ve, cos_sin, self.window_sizes[i])
-            
-            # EXP-029.2: Save intermediate hidden state from source layer
-            if return_intermediate and i == SOURCE_LAYER:
-                intermediate = x
-        
         x = norm(x)
-        
-        if return_intermediate:
-            return x, intermediate
         return x
 
-    def forward_head(self, x, targets=None, reduction='mean', intermediate=None):
+    def forward_head(self, x, targets=None, reduction='mean'):
         softcap = 13
         logits = self.lm_head(x)
         logits = logits.float()
@@ -365,26 +321,15 @@ class GPT(nn.Module):
         if targets is not None:
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1),
                                    ignore_index=-1, reduction=reduction)
-            
-            # EXP-029.2: Next-token latent prediction
-            # Predict next token's h_final from current h_source
-            if intermediate is not None and intermediate.size(1) > 1:
-                # Skip last position (no next token to predict)
-                predicted_next = self.latent_predictor(intermediate[:, :-1].float())
-                target_next = x[:, 1:].float().detach()  # stop-grad on target
-                latent_loss = F.mse_loss(predicted_next, target_next, reduction=reduction)
-                loss = loss + LATENT_LOSS_LAMBDA * latent_loss
-            
             return loss
         return logits
 
     def forward(self, idx, targets=None, reduction='mean'):
-        if targets is not None:
-            x, intermediate = self.forward_backbone(idx, return_intermediate=True)
-            return self.forward_head(x, targets, reduction, intermediate)
-        else:
-            x = self.forward_backbone(idx, return_intermediate=False)
-            return self.forward_head(x, targets, reduction, None)
+        x = self.forward_backbone(idx)
+        loss = self.forward_head(x, targets, reduction)
+        if targets is not None and reduction == 'mean':
+            return loss, x  # training needs hidden states for contrastive loss
+        return loss
 
 # ---------------------------------------------------------------------------
 # Optimizer (MuonAdamW, single GPU only)
@@ -463,223 +408,340 @@ class MuonAdamW(torch.optim.Optimizer):
         self._muon_lr_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._muon_wd_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._muon_beta2_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        self._muon_ns_steps_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        # Stack matrix parameters into single contiguous param (for Muon)
-        self.muon_params_stacked = []
-        self.muon_param_shapes = []
-        for group in self.param_groups:
-            if group.get("kind") == "muon":
-                params = group["params"]
-                stacked = torch.stack([p.view(-1) for p in params])
-                self.muon_params_stacked.append(stacked)
-                self.muon_param_shapes.append([p.shape for p in params])
-                for i, p in enumerate(params):
-                    view_params = stacked[i].view(p.shape)
-                    p.data = view_params
-                    assert p.data.data_ptr() == view_params.data_ptr()
 
-    def zero_grad(self, set_to_none=False):
-        for group in self.param_groups:
-            for p in group["params"]:
-                if set_to_none:
-                    p.grad = None
-                else:
-                    if p.grad is not None:
-                        p.grad.zero_()
+    def _step_adamw(self, group):
+        for p in group['params']:
+            if p.grad is None:
+                continue
+            grad = p.grad
+            state = self.state[p]
+            if not state:
+                state['step'] = 0
+                state['exp_avg'] = torch.zeros_like(p)
+                state['exp_avg_sq'] = torch.zeros_like(p)
+            state['step'] += 1
+            self._adamw_step_t.fill_(state['step'])
+            self._adamw_lr_t.fill_(group['lr'])
+            self._adamw_beta1_t.fill_(group['betas'][0])
+            self._adamw_beta2_t.fill_(group['betas'][1])
+            self._adamw_eps_t.fill_(group['eps'])
+            self._adamw_wd_t.fill_(group['weight_decay'])
+            adamw_step_fused(p, grad, state['exp_avg'], state['exp_avg_sq'],
+                            self._adamw_step_t, self._adamw_lr_t, self._adamw_beta1_t,
+                            self._adamw_beta2_t, self._adamw_eps_t, self._adamw_wd_t)
+
+    def _step_muon(self, group):
+        params = [p for p in group['params'] if p.grad is not None]
+        if not params:
+            return
+        p = params[0]
+        state = self.state[p]
+        num_params = len(params)
+        shape, device, dtype = p.shape, p.device, p.dtype
+        if "momentum_buffer" not in state:
+            state["momentum_buffer"] = torch.zeros(num_params, *shape, dtype=dtype, device=device)
+        if "second_momentum_buffer" not in state:
+            state_shape = (num_params, shape[-2], 1) if shape[-2] >= shape[-1] else (num_params, 1, shape[-1])
+            state["second_momentum_buffer"] = torch.zeros(state_shape, dtype=dtype, device=device)
+        red_dim = -1 if shape[-2] >= shape[-1] else -2
+        stacked_grads = torch.stack([p.grad for p in params])
+        stacked_params = torch.stack(params)
+        self._muon_momentum_t.fill_(group["momentum"])
+        self._muon_beta2_t.fill_(group["beta2"] if group["beta2"] is not None else 0.0)
+        self._muon_lr_t.fill_(group["lr"] * max(1.0, shape[-2] / shape[-1])**0.5)
+        self._muon_wd_t.fill_(group["weight_decay"])
+        muon_step_fused(stacked_grads, stacked_params,
+                        state["momentum_buffer"], state["second_momentum_buffer"],
+                        self._muon_momentum_t, self._muon_lr_t, self._muon_wd_t,
+                        self._muon_beta2_t, group["ns_steps"], red_dim)
+        for param, updated in zip(params, stacked_params.unbind(0)):
+            param.copy_(updated)
 
     @torch.no_grad()
     def step(self):
         for group in self.param_groups:
-            if group.get("kind") == "adamw":
-                self._adamw_step_t.fill_(self.state.get("step", 0) + 1)
-                self._adamw_lr_t.fill_(group["lr"])
-                self._adamw_beta1_t.fill_(group["betas"][0])
-                self._adamw_beta2_t.fill_(group["betas"][1])
-                self._adamw_eps_t.fill_(group["eps"])
-                self._adamw_wd_t.fill_(group.get("weight_decay", 0.0))
-                for p in group["params"]:
-                    if p.grad is None:
-                        continue
-                    state = self.state[p]
-                    if len(state) == 0:
-                        state["exp_avg"] = torch.zeros_like(p)
-                        state["exp_avg_sq"] = torch.zeros_like(p)
-                    adamw_step_fused(
-                        p, p.grad, state["exp_avg"], state["exp_avg_sq"],
-                        self._adamw_step_t, self._adamw_lr_t, self._adamw_beta1_t,
-                        self._adamw_beta2_t, self._adamw_eps_t, self._adamw_wd_t,
-                    )
-
-            elif group.get("kind") == "muon":
-                self._muon_momentum_t.fill_(group["momentum"])
-                self._muon_lr_t.fill_(group["lr"])
-                self._muon_wd_t.fill_(group.get("weight_decay", 0.0))
-                self._muon_beta2_t.fill_(group["beta2"])
-                self._muon_ns_steps_t.fill_(group["ns_steps"])
-                params = group["params"]
-                grads = [p.grad for p in params if p.grad is not None]
-                if len(grads) == 0:
-                    continue
-                state_key = id(params[0])
-                if state_key not in self.state:
-                    self.state[state_key] = {
-                        "momentum_buffer": torch.zeros_like(grads[0]),
-                        "second_momentum_buffer": torch.zeros_like(grads[0]),
-                    }
-                state = self.state[state_key]
-                stacked_grads = torch.stack([g.view(-1) for g in grads])
-                stacked_params = torch.stack([p.view(-1) for p in params])
-                red_dim = 0 if stacked_params.size(0) < stacked_params.size(1) else 1
-                muon_step_fused(
-                    stacked_grads, stacked_params,
-                    state["momentum_buffer"], state["second_momentum_buffer"],
-                    self._muon_momentum_t, self._muon_lr_t, self._muon_wd_t,
-                    self._muon_beta2_t, int(self._muon_ns_steps_t.item()), red_dim,
-                )
-        if "step" not in self.state:
-            self.state["step"] = 0
-        self.state["step"] += 1
-
+            if group['kind'] == 'adamw':
+                self._step_adamw(group)
+            elif group['kind'] == 'muon':
+                self._step_muon(group)
 
 # ---------------------------------------------------------------------------
-# Training Loop
+# Hyperparameters (edit these directly, no CLI flags needed)
+# ---------------------------------------------------------------------------
+
+# Model architecture
+ASPECT_RATIO = 40       # model_dim = depth * ASPECT_RATIO
+HEAD_DIM = 128          # target head dimension for attention
+WINDOW_PATTERN = "SSSL"    # sliding window pattern: all short (last always forced to L)
+
+# Optimization
+TOTAL_BATCH_SIZE = 2**18 # ~262K tokens per optimizer step
+EMBEDDING_LR = 1.0      # learning rate for token embeddings (Adam)
+UNEMBEDDING_LR = 0.008  # learning rate for lm_head (Adam)
+MATRIX_LR = 0.04        # learning rate for matrix parameters (Muon)
+SCALAR_LR = 1.0         # learning rate for per-layer scalars (Adam)
+WEIGHT_DECAY = 0.2      # cautious weight decay for Muon
+ADAM_BETAS = (0.8, 0.95) # Adam beta1, beta2
+WARMUP_RATIO = 0.0      # fraction of time budget for LR warmup
+WARMDOWN_RATIO = 0.8    # fraction of time budget for LR warmdown
+FINAL_LR_FRAC = 0.04    # final LR as fraction of initial
+TRAIN_BUDGET_MODE = "time"  # options: time, tokens
+TOKEN_BUDGET = 10_000_000
+SKIP_EVAL = False
+QUICK_EVAL = False
+TWO_STAGE_HEAD_UPDATE = False
+
+# Model size
+DEPTH = 12              # number of transformer layers
+DEVICE_BATCH_SIZE = 128  # per-device batch size (reduce if OOM)
+SEQ_LEN_OVERRIDE = 0      # 0 = usar MAX_SEQ_LEN
+USE_TORCH_COMPILE = True
+CONTRASTIVE_NEIGHBOR_RADIUS = 1
+
+# CLI overrides (ex: uv run train.py --steps=100 --two-stage-head-update --quick-eval)
+for arg in sys.argv[1:]:
+    if arg.startswith("--steps="):
+        _steps = int(arg.split("=", 1)[1])
+        TOKEN_BUDGET = _steps * TOTAL_BATCH_SIZE
+        TRAIN_BUDGET_MODE = "tokens"
+    elif arg == "--no-eval":
+        SKIP_EVAL = True
+    elif arg == "--quick-eval":
+        QUICK_EVAL = True
+    elif arg == "--two-stage-head-update":
+        TWO_STAGE_HEAD_UPDATE = True
+    elif arg.startswith("--device-batch-size="):
+        DEVICE_BATCH_SIZE = int(arg.split("=", 1)[1])
+    elif arg.startswith("--seq-len="):
+        SEQ_LEN_OVERRIDE = int(arg.split("=", 1)[1])
+    elif arg == "--no-compile":
+        USE_TORCH_COMPILE = False
+
+# ---------------------------------------------------------------------------
+# Setup: tokenizer, model, optimizer, dataloader
 # ---------------------------------------------------------------------------
 
 t_start = time.time()
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
+torch.set_float32_matmul_precision("high")
+device = torch.device("cuda")
+AMP_DTYPE = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=AMP_DTYPE)
+H100_BF16_PEAK_FLOPS = 989.5e12
 
-# Device
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-device = torch.device(DEVICE)
-if DEVICE == "cuda":
-    torch.cuda.empty_cache()
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-
-# Budget & eval mode
-TRAIN_BUDGET_MODE = "time"  # or "tokens"
-QUICK_EVAL = True
-SKIP_EVAL = "--no-eval" in sys.argv
-if "--quick-eval" in sys.argv:
-    QUICK_EVAL = True
-if "--full-eval" in sys.argv:
-    QUICK_EVAL = False
-
-# Parse CLI args
-TOKEN_BUDGET = 400_000_000
-DEPTH = 12
-DEVICE_BATCH_SIZE = 32
-EVAL_BATCH_SIZE = 64
-GRAD_ACCUM_STEPS = 1
-STEP_BUDGET = None
-SEQ_LEN_OVERRIDE = 0
-
-for arg in sys.argv[1:]:
-    if arg.startswith("--steps="):
-        STEP_BUDGET = int(arg.split("=", 1)[1])
-    elif arg.startswith("--budget="):
-        raw = arg.split("=", 1)[1]
-        if raw.endswith("M"):
-            TOKEN_BUDGET = int(float(raw[:-1]) * 1e6)
-        elif raw.endswith("B"):
-            TOKEN_BUDGET = int(float(raw[:-1]) * 1e9)
-        else:
-            TOKEN_BUDGET = int(float(raw))
-    elif arg.startswith("--depth="):
-        DEPTH = int(arg.split("=", 1)[1])
-    elif arg.startswith("--device-batch-size=") or arg.startswith("--batch="):
-        DEVICE_BATCH_SIZE = int(arg.split("=", 1)[1])
-    elif arg.startswith("--eval-batch-size="):
-        EVAL_BATCH_SIZE = int(arg.split("=", 1)[1])
-    elif arg.startswith("--seq-len="):
-        SEQ_LEN_OVERRIDE = int(arg.split("=", 1)[1])
-    elif arg.startswith("--accum="):
-        GRAD_ACCUM_STEPS = int(arg.split("=", 1)[1])
-
-TOTAL_BATCH_SIZE = DEVICE_BATCH_SIZE * GRAD_ACCUM_STEPS
-TRAIN_SEQ_LEN = min(MAX_SEQ_LEN, SEQ_LEN_OVERRIDE) if SEQ_LEN_OVERRIDE else MAX_SEQ_LEN
-TOKENS_PER_STEP = TOTAL_BATCH_SIZE * TRAIN_SEQ_LEN
-if STEP_BUDGET is not None:
-    TOKEN_BUDGET = STEP_BUDGET * TOKENS_PER_STEP
-    TRAIN_BUDGET_MODE = "tokens"
-
-# Tokenizer
 tokenizer = Tokenizer.from_directory()
 vocab_size = tokenizer.get_vocab_size()
+print(f"Vocab size: {vocab_size:,}")
 
-# Model
-config = GPTConfig(sequence_len=TRAIN_SEQ_LEN, vocab_size=vocab_size, n_layer=DEPTH)
-model = GPT(config)
-model.to(device)
+def build_model_config(depth):
+    base_dim = depth * ASPECT_RATIO
+    model_dim = ((base_dim + HEAD_DIM - 1) // HEAD_DIM) * HEAD_DIM
+    num_heads = model_dim // HEAD_DIM
+    train_seq_len = min(MAX_SEQ_LEN, SEQ_LEN_OVERRIDE) if SEQ_LEN_OVERRIDE else MAX_SEQ_LEN
+    return GPTConfig(
+        sequence_len=train_seq_len, vocab_size=vocab_size,
+        n_layer=depth, n_head=num_heads, n_kv_head=num_heads, n_embd=model_dim,
+        window_pattern=WINDOW_PATTERN,
+        compute_dtype=AMP_DTYPE,
+    )
+
+config = build_model_config(DEPTH)
+print(f"Model config: {asdict(config)}")
+
+with torch.device("meta"):
+    model = GPT(config)
+model.to_empty(device=device)
 model.init_weights()
 
-num_params = sum(p.numel() for p in model.parameters())
-print(f"Model params: {num_params:,}")
-print(f"Param breakdown: {model.num_scaling_params()}")
-
+param_counts = model.num_scaling_params()
+print("Parameter counts:")
+for key, value in param_counts.items():
+    print(f"  {key:24s}: {value:,}")
+num_params = param_counts['total']
 num_flops_per_token = model.estimate_flops()
-H100_BF16_PEAK_FLOPS = 989e12
-print(f"Est. FLOPs/token: {num_flops_per_token:,}")
+print(f"Estimated FLOPs per token: {num_flops_per_token:e}")
 
-# Optimizer
-optimizer = model.setup_optimizer()
+tokens_per_fwdbwd = DEVICE_BATCH_SIZE * config.sequence_len
+assert TOTAL_BATCH_SIZE % tokens_per_fwdbwd == 0
+grad_accum_steps = TOTAL_BATCH_SIZE // tokens_per_fwdbwd
 
-# Dataloader
+optimizer = model.setup_optimizer(
+    unembedding_lr=UNEMBEDDING_LR,
+    embedding_lr=EMBEDDING_LR,
+    scalar_lr=SCALAR_LR,
+    adam_betas=ADAM_BETAS,
+    matrix_lr=MATRIX_LR,
+    weight_decay=WEIGHT_DECAY,
+)
+
+if USE_TORCH_COMPILE:
+    model = torch.compile(model, dynamic=False)
+
 train_loader = make_dataloader(tokenizer, DEVICE_BATCH_SIZE, config.sequence_len, "train")
-x, y, epoch = next(train_loader)
+x, y, epoch = next(train_loader)  # prefetch first batch
 
-# AMP context
-compute_dtype = config.compute_dtype
-if compute_dtype == torch.bfloat16:
-    autocast_ctx = torch.amp.autocast(device_type=DEVICE, dtype=torch.bfloat16)
-else:
-    autocast_ctx = torch.amp.autocast(device_type=DEVICE, dtype=torch.float16)
+# Pre-allocate micro-batch storage for two-stage (avoids repeated allocation)
+if TWO_STAGE_HEAD_UPDATE:
+    mb_x = torch.empty(grad_accum_steps, *x.shape, dtype=x.dtype, device=x.device)
+    mb_y = torch.empty(grad_accum_steps, *y.shape, dtype=y.dtype, device=y.device)
 
+print(f"Time budget: {TIME_BUDGET}s")
+print(f"Gradient accumulation steps: {grad_accum_steps}")
+print(f"Budget mode: {TRAIN_BUDGET_MODE}")
+if TRAIN_BUDGET_MODE == "tokens":
+    print(f"Token budget: {TOKEN_BUDGET:,}")
+print(f"Two-stage head update: {TWO_STAGE_HEAD_UPDATE}")
+
+# Schedules (all based on progress = training_time / TIME_BUDGET)
+
+def get_lr_multiplier(progress):
+    if progress < WARMUP_RATIO:
+        return progress / WARMUP_RATIO if WARMUP_RATIO > 0 else 1.0
+    elif progress < 1.0 - WARMDOWN_RATIO:
+        return 1.0
+    else:
+        cooldown = (1.0 - progress) / WARMDOWN_RATIO
+        return cooldown * 1.0 + (1 - cooldown) * FINAL_LR_FRAC
+
+def get_muon_momentum(step):
+    frac = min(step / 300, 1)
+    return (1 - frac) * 0.85 + frac * 0.95
+
+def get_weight_decay(progress):
+    return WEIGHT_DECAY * (1 - progress)
+
+# ---------------------------------------------------------------------------
 # Training loop
-t_start_training = time.time()
-step = 0
-epoch = 0
-processed_tokens = 0
-total_training_time = 0.0
-smooth_train_loss = 4.0
+# ---------------------------------------------------------------------------
 
-print("\n--- Training ---")
+t_start_training = time.time()
+smooth_train_loss = 0
+total_training_time = 0
+processed_tokens = 0
+step = 0
+
+head_params = list(model.lm_head.parameters())
+head_param_ids = {id(p) for p in head_params}
+non_head_params = [p for p in model.parameters() if id(p) not in head_param_ids]
 
 while True:
-    model.train()
-    if TRAIN_BUDGET_MODE == "tokens" and processed_tokens >= TOKEN_BUDGET:
-        break
-    if TRAIN_BUDGET_MODE == "time" and step > 10 and total_training_time >= TIME_BUDGET:
-        break
-
     torch.cuda.synchronize()
     t0 = time.time()
 
-    # Forward + backward
-    progress = processed_tokens / TOKEN_BUDGET if TRAIN_BUDGET_MODE == "tokens" else total_training_time / TIME_BUDGET
-    lrm = 1.0  # Learning rate multiplier (no warmup/decay for now)
-
-    for group in optimizer.param_groups:
+    # Progress and schedules
+    if TRAIN_BUDGET_MODE == "tokens":
+        progress = min(processed_tokens / max(TOKEN_BUDGET, 1), 1.0)
+    else:
+        progress = min(total_training_time / TIME_BUDGET, 1.0)
+    lrm = get_lr_multiplier(progress)
+    muon_momentum = get_muon_momentum(step)
+    muon_weight_decay = get_weight_decay(progress)
+    ve_warmup_frac = min(progress / 0.07, 1.0) if progress < 0.07 else 1.0  # 7% VE warmup
+    for gi, group in enumerate(optimizer.param_groups):
         group["lr"] = group["initial_lr"] * lrm
+        if gi == 2:  # VE param group
+            group["lr"] *= ve_warmup_frac
+        if group['kind'] == 'muon':
+            group["momentum"] = muon_momentum
+            group["weight_decay"] = muon_weight_decay
 
-    loss_accum = 0.0
-    for micro_step in range(GRAD_ACCUM_STEPS):
-        with autocast_ctx:
-            train_loss = model(x, y, reduction='sum') / x.numel()
-        loss_accum += train_loss.detach()
-        (train_loss / GRAD_ACCUM_STEPS).backward()
-        x, y, epoch = next(train_loader)
+    if TWO_STAGE_HEAD_UPDATE:
+        # Stage 1: backbone under no_grad (no activations stored), only head gets grads.
+        for p in non_head_params:
+            p.requires_grad_(False)
+        for micro_step in range(grad_accum_steps):
+            mb_x[micro_step].copy_(x)
+            mb_y[micro_step].copy_(y)
+            with autocast_ctx:
+                with torch.no_grad():
+                    hidden = model.forward_backbone(x)
+                loss = model.forward_head(hidden, y)
+            train_loss = loss.detach()
+            (loss / grad_accum_steps).backward()
+            x, y, epoch = next(train_loader)
+        for p in non_head_params:
+            p.requires_grad_(True)
 
-    train_loss = loss_accum / GRAD_ACCUM_STEPS
+        # Step only lm_head group (index 0)
+        with torch.no_grad():
+            optimizer._step_adamw(optimizer.param_groups[0])
+        model.zero_grad(set_to_none=True)
 
-    # Gradient metrics
-    grad_info = None
-    if step % 20 == 0:
-        grad_info = compute_grad_metrics(model)
+        # Stage 2: full forward with updated head, backbone gets grads.
+        for p in head_params:
+            p.requires_grad_(False)
+        for micro_step in range(grad_accum_steps):
+            with autocast_ctx:
+                loss = model(mb_x[micro_step], mb_y[micro_step])
+            train_loss = loss.detach()
+            (loss / grad_accum_steps).backward()
+        for p in head_params:
+            p.requires_grad_(True)
 
-    # Optimizer step
-    optimizer.step()
-    model.zero_grad(set_to_none=True)
+        # Step only backbone groups (index 1+)
+        with torch.no_grad():
+            for group in optimizer.param_groups[1:]:
+                if group['kind'] == 'adamw':
+                    optimizer._step_adamw(group)
+                elif group['kind'] == 'muon':
+                    optimizer._step_muon(group)
+        model.zero_grad(set_to_none=True)
+    else:
+        for micro_step in range(grad_accum_steps):
+            with autocast_ctx:
+                loss, hiddens = model(x, y)
+            train_loss = loss.detach()
+            # EXP-005.2: richer positives beyond same-token identity.
+            CONTRASTIVE_LAMBDA = 0.1
+            CONTRASTIVE_SAMPLE = 256  # subsample tokens for memory efficiency
+            with autocast_ctx:
+                BT = hiddens.view(-1, hiddens.size(-1)).shape[0]
+                D = hiddens.size(-1)
+                batch_size, seq_len = hiddens.shape[0], hiddens.shape[1]
+                batch_ids = torch.arange(batch_size, device=hiddens.device).unsqueeze(1).expand(batch_size, seq_len).reshape(-1)
+                pos_ids = torch.arange(seq_len, device=hiddens.device).unsqueeze(0).expand(batch_size, seq_len).reshape(-1)
+                # Subsample tokens to keep similarity matrix manageable
+                if BT > CONTRASTIVE_SAMPLE:
+                    perm = torch.randperm(BT, device=hiddens.device)[:CONTRASTIVE_SAMPLE]
+                    h_sub = hiddens.reshape(-1, D)[perm]
+                    targets_sub = y.view(-1)[perm]
+                    batch_ids_sub = batch_ids[perm]
+                    pos_ids_sub = pos_ids[perm]
+                else:
+                    h_sub = hiddens.reshape(-1, D)
+                    targets_sub = y.view(-1)
+                    batch_ids_sub = batch_ids
+                    pos_ids_sub = pos_ids
+                h_norm = F.normalize(h_sub, dim=-1)  # (S, D)
+                sim = h_norm @ h_norm.T  # (S, S)
+                same_token_mask = targets_sub.unsqueeze(0) == targets_sub.unsqueeze(1)
+                neighbor_mask = (
+                    (batch_ids_sub.unsqueeze(0) == batch_ids_sub.unsqueeze(1)) &
+                    ((pos_ids_sub.unsqueeze(0) - pos_ids_sub.unsqueeze(1)).abs() <= CONTRASTIVE_NEIGHBOR_RADIUS)
+                )
+                valid_target_mask = (targets_sub.unsqueeze(0) != -1) & (targets_sub.unsqueeze(1) != -1)
+                mask = (same_token_mask | neighbor_mask) & valid_target_mask
+                mask = mask.float()
+                mask.fill_diagonal_(0)  # exclude self
+                # InfoNCE-style: log(sum_pos / sum_all)
+                temperature = 0.1
+                exp_sim = torch.exp(sim / temperature)
+                pos_sum = (exp_sim * mask).sum(dim=1)
+                all_sum = exp_sim.sum(dim=1) - exp_sim.diagonal()
+                # Only compute where there are positive pairs
+                valid = pos_sum > 0
+                if valid.any():
+                    contrastive = -torch.log(pos_sum[valid] / all_sum[valid].clamp(min=1e-8)).mean()
+                    aux_loss = CONTRASTIVE_LAMBDA * contrastive / grad_accum_steps
+                else:
+                    aux_loss = torch.tensor(0.0, device=loss.device)
+            # Single backward — gradients flow through BOTH main CE loss AND contrastive
+            ((loss / grad_accum_steps) + aux_loss).backward()
+            x, y, epoch = next(train_loader)
+
+        optimizer.step()
+        model.zero_grad(set_to_none=True)
 
     train_loss_f = train_loss.item()
 
@@ -694,15 +756,15 @@ while True:
 
     if step > 10:
         total_training_time += dt
-    processed_tokens += TOKENS_PER_STEP
+    processed_tokens += TOTAL_BATCH_SIZE
 
     # Logging
     ema_beta = 0.9
     smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f
     debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1))
     pct_done = 100 * progress
-    tok_per_sec = int(TOKENS_PER_STEP / dt)
-    mfu = 100 * num_flops_per_token * TOKENS_PER_STEP / dt / H100_BF16_PEAK_FLOPS
+    tok_per_sec = int(TOTAL_BATCH_SIZE / dt)
+    mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE / dt / H100_BF16_PEAK_FLOPS
     if TRAIN_BUDGET_MODE == "tokens":
         remaining = max(0, TOKEN_BUDGET - processed_tokens)
         remaining_str = f"{remaining:,} tok"
@@ -711,8 +773,6 @@ while True:
         remaining_str = f"{remaining:.0f}s"
 
     print(f"step {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining_str}    ", flush=True)
-    if grad_info is not None:
-        print(grad_info["log_line"], flush=True)
 
     # GC management (Python's GC causes ~500ms stalls)
     if step == 0:
@@ -724,10 +784,13 @@ while True:
 
     step += 1
 
-    if TRAIN_BUDGET_MODE == "tokens" and processed_tokens >= TOKEN_BUDGET:
-        break
-    if TRAIN_BUDGET_MODE == "time" and step > 10 and total_training_time >= TIME_BUDGET:
-        break
+    if TRAIN_BUDGET_MODE == "tokens":
+        if processed_tokens >= TOKEN_BUDGET:
+            break
+    else:
+        # Time's up but only stop after warmup steps so we don't count compilation
+        if step > 10 and total_training_time >= TIME_BUDGET:
+            break
 
 print()  # newline after \r training log
 
@@ -737,7 +800,6 @@ total_tokens = processed_tokens
 val_bpb = None
 if not SKIP_EVAL:
     model.eval()
-    eval_batch_size = EVAL_BATCH_SIZE if EVAL_BATCH_SIZE > 0 else DEVICE_BATCH_SIZE
     eval_tokens = None
     eval_divisor = 32
     if QUICK_EVAL:
@@ -749,7 +811,7 @@ if not SKIP_EVAL:
     with autocast_ctx:
         eval_sig = inspect.signature(evaluate_bpb)
         if (eval_tokens is not None) and ("eval_tokens" in eval_sig.parameters):
-            val_bpb = evaluate_bpb(model, tokenizer, eval_batch_size, eval_tokens=eval_tokens)
+            val_bpb = evaluate_bpb(model, tokenizer, DEVICE_BATCH_SIZE, eval_tokens=eval_tokens)
         else:
             if QUICK_EVAL:
                 # Backward-compatible quick eval for prepare.evaluate_bpb(model, tokenizer, batch_size)
@@ -758,13 +820,13 @@ if not SKIP_EVAL:
                     _orig_eval_tokens = _prepare_mod.EVAL_TOKENS
                     _prepare_mod.EVAL_TOKENS = max(1, _orig_eval_tokens // eval_divisor)
                     try:
-                        val_bpb = evaluate_bpb(model, tokenizer, eval_batch_size)
+                        val_bpb = evaluate_bpb(model, tokenizer, DEVICE_BATCH_SIZE)
                     finally:
                         _prepare_mod.EVAL_TOKENS = _orig_eval_tokens
                 else:
-                    val_bpb = evaluate_bpb(model, tokenizer, eval_batch_size)
+                    val_bpb = evaluate_bpb(model, tokenizer, DEVICE_BATCH_SIZE)
             else:
-                val_bpb = evaluate_bpb(model, tokenizer, eval_batch_size)
+                val_bpb = evaluate_bpb(model, tokenizer, DEVICE_BATCH_SIZE)
 
 # Final summary
 t_end = time.time()

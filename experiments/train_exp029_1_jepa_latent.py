@@ -571,9 +571,13 @@ DEPTH = 12
 DEVICE_BATCH_SIZE = 32
 EVAL_BATCH_SIZE = 64
 GRAD_ACCUM_STEPS = 1
+STEP_BUDGET = None
+SEQ_LEN_OVERRIDE = 0
 
 for arg in sys.argv[1:]:
-    if arg.startswith("--budget="):
+    if arg.startswith("--steps="):
+        STEP_BUDGET = int(arg.split("=", 1)[1])
+    elif arg.startswith("--budget="):
         raw = arg.split("=", 1)[1]
         if raw.endswith("M"):
             TOKEN_BUDGET = int(float(raw[:-1]) * 1e6)
@@ -583,18 +587,28 @@ for arg in sys.argv[1:]:
             TOKEN_BUDGET = int(float(raw))
     elif arg.startswith("--depth="):
         DEPTH = int(arg.split("=", 1)[1])
-    elif arg.startswith("--batch="):
+    elif arg.startswith("--device-batch-size=") or arg.startswith("--batch="):
         DEVICE_BATCH_SIZE = int(arg.split("=", 1)[1])
+    elif arg.startswith("--eval-batch-size="):
+        EVAL_BATCH_SIZE = int(arg.split("=", 1)[1])
+    elif arg.startswith("--seq-len="):
+        SEQ_LEN_OVERRIDE = int(arg.split("=", 1)[1])
     elif arg.startswith("--accum="):
         GRAD_ACCUM_STEPS = int(arg.split("=", 1)[1])
 
 TOTAL_BATCH_SIZE = DEVICE_BATCH_SIZE * GRAD_ACCUM_STEPS
+TRAIN_SEQ_LEN = min(MAX_SEQ_LEN, SEQ_LEN_OVERRIDE) if SEQ_LEN_OVERRIDE else MAX_SEQ_LEN
+TOKENS_PER_STEP = TOTAL_BATCH_SIZE * TRAIN_SEQ_LEN
+if STEP_BUDGET is not None:
+    TOKEN_BUDGET = STEP_BUDGET * TOKENS_PER_STEP
+    TRAIN_BUDGET_MODE = "tokens"
 
 # Tokenizer
-tokenizer = Tokenizer()
+tokenizer = Tokenizer.from_directory()
+vocab_size = tokenizer.get_vocab_size()
 
 # Model
-config = GPTConfig(sequence_len=MAX_SEQ_LEN, vocab_size=tokenizer.vocab_size, n_layer=DEPTH)
+config = GPTConfig(sequence_len=TRAIN_SEQ_LEN, vocab_size=vocab_size, n_layer=DEPTH)
 model = GPT(config)
 model.to(device)
 model.init_weights()
@@ -611,7 +625,8 @@ print(f"Est. FLOPs/token: {num_flops_per_token:,}")
 optimizer = model.setup_optimizer()
 
 # Dataloader
-train_loader = make_dataloader(tokenizer, split="train", batch_size=DEVICE_BATCH_SIZE)
+train_loader = make_dataloader(tokenizer, DEVICE_BATCH_SIZE, config.sequence_len, "train")
+x, y, epoch = next(train_loader)
 
 # AMP context
 compute_dtype = config.compute_dtype
@@ -632,95 +647,83 @@ print("\n--- Training ---")
 
 while True:
     model.train()
-    for tokens in train_loader:
-        if TRAIN_BUDGET_MODE == "tokens" and processed_tokens >= TOKEN_BUDGET:
-            break
-        if TRAIN_BUDGET_MODE == "time" and step > 10 and total_training_time >= TIME_BUDGET:
-            break
+    if TRAIN_BUDGET_MODE == "tokens" and processed_tokens >= TOKEN_BUDGET:
+        break
+    if TRAIN_BUDGET_MODE == "time" and step > 10 and total_training_time >= TIME_BUDGET:
+        break
 
-        tokens = tokens.to(device)
-        x, y = tokens[:, :-1], tokens[:, 1:]
+    torch.cuda.synchronize()
+    t0 = time.time()
 
-        torch.cuda.synchronize()
-        t0 = time.time()
+    # Forward + backward
+    progress = processed_tokens / TOKEN_BUDGET if TRAIN_BUDGET_MODE == "tokens" else total_training_time / TIME_BUDGET
+    lrm = 1.0  # Learning rate multiplier (no warmup/decay for now)
 
-        # Forward + backward
-        progress = processed_tokens / TOKEN_BUDGET if TRAIN_BUDGET_MODE == "tokens" else total_training_time / TIME_BUDGET
-        lrm = 1.0  # Learning rate multiplier (no warmup/decay for now)
+    for group in optimizer.param_groups:
+        group["lr"] = group["initial_lr"] * lrm
 
-        for group in optimizer.param_groups:
-            group["lr"] = group["initial_lr"] * lrm
+    loss_accum = 0.0
+    for micro_step in range(GRAD_ACCUM_STEPS):
+        with autocast_ctx:
+            train_loss = model(x, y, reduction='sum') / x.numel()
+        loss_accum += train_loss.detach()
+        (train_loss / GRAD_ACCUM_STEPS).backward()
+        x, y, epoch = next(train_loader)
 
-        loss_accum = 0.0
-        for micro_step in range(GRAD_ACCUM_STEPS):
-            with autocast_ctx:
-                train_loss = model(x, y, reduction='sum') / (x.numel())
-            loss_accum += train_loss.detach()
-            (train_loss / GRAD_ACCUM_STEPS).backward()
+    train_loss = loss_accum / GRAD_ACCUM_STEPS
 
-        train_loss = loss_accum / GRAD_ACCUM_STEPS
+    # Gradient metrics
+    grad_info = None
+    if step % 20 == 0:
+        grad_info = compute_grad_metrics(model)
 
-        # Gradient metrics
-        grad_info = None
-        if step % 20 == 0:
-            grad_info = compute_grad_metrics(model)
+    # Optimizer step
+    optimizer.step()
+    model.zero_grad(set_to_none=True)
 
-        # Optimizer step
-        optimizer.step()
-        model.zero_grad(set_to_none=True)
+    train_loss_f = train_loss.item()
 
-        train_loss_f = train_loss.item()
+    # Fast fail: abort if loss is exploding
+    if train_loss_f > 100:
+        print("FAIL")
+        exit(1)
 
-        # Fast fail: abort if loss is exploding
-        if train_loss_f > 100:
-            print("FAIL")
-            exit(1)
+    torch.cuda.synchronize()
+    t1 = time.time()
+    dt = t1 - t0
 
-        torch.cuda.synchronize()
-        t1 = time.time()
-        dt = t1 - t0
+    if step > 10:
+        total_training_time += dt
+    processed_tokens += TOKENS_PER_STEP
 
-        if step > 10:
-            total_training_time += dt
-        processed_tokens += TOTAL_BATCH_SIZE
+    # Logging
+    ema_beta = 0.9
+    smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f
+    debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1))
+    pct_done = 100 * progress
+    tok_per_sec = int(TOKENS_PER_STEP / dt)
+    mfu = 100 * num_flops_per_token * TOKENS_PER_STEP / dt / H100_BF16_PEAK_FLOPS
+    if TRAIN_BUDGET_MODE == "tokens":
+        remaining = max(0, TOKEN_BUDGET - processed_tokens)
+        remaining_str = f"{remaining:,} tok"
+    else:
+        remaining = max(0, TIME_BUDGET - total_training_time)
+        remaining_str = f"{remaining:.0f}s"
 
-        # Logging
-        ema_beta = 0.9
-        smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f
-        debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1))
-        pct_done = 100 * progress
-        tok_per_sec = int(TOTAL_BATCH_SIZE / dt)
-        mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE / dt / H100_BF16_PEAK_FLOPS
-        if TRAIN_BUDGET_MODE == "tokens":
-            remaining = max(0, TOKEN_BUDGET - processed_tokens)
-            remaining_str = f"{remaining:,} tok"
-        else:
-            remaining = max(0, TIME_BUDGET - total_training_time)
-            remaining_str = f"{remaining:.0f}s"
+    print(f"step {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining_str}    ", flush=True)
+    if grad_info is not None:
+        print(grad_info["log_line"], flush=True)
 
-        print(f"step {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining_str}    ", flush=True)
-        if grad_info is not None:
-            print(grad_info["log_line"], flush=True)
+    # GC management (Python's GC causes ~500ms stalls)
+    if step == 0:
+        gc.collect()
+        gc.freeze()
+        gc.disable()
+    elif (step + 1) % 5000 == 0:
+        gc.collect()
 
-        # GC management (Python's GC causes ~500ms stalls)
-        if step == 0:
-            gc.collect()
-            gc.freeze()
-            gc.disable()
-        elif (step + 1) % 5000 == 0:
-            gc.collect()
+    step += 1
 
-        step += 1
-
-        if TRAIN_BUDGET_MODE == "tokens":
-            if processed_tokens >= TOKEN_BUDGET:
-                break
-        else:
-            # Time's up but only stop after warmup steps so we don't count compilation
-            if step > 10 and total_training_time >= TIME_BUDGET:
-                break
-
-    epoch += 1
     if TRAIN_BUDGET_MODE == "tokens" and processed_tokens >= TOKEN_BUDGET:
         break
     if TRAIN_BUDGET_MODE == "time" and step > 10 and total_training_time >= TIME_BUDGET:
