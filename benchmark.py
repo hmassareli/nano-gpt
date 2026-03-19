@@ -67,21 +67,21 @@ if not train_files:
 
 # Extract EXP_TITLE from a train script file
 TITLE_RE = re.compile(r'^EXP_TITLE\s*=\s*["\'](.+?)["\']', re.MULTILINE)
-EXP_ID_RE = re.compile(r'\bEXP-(\d{3})(?:\.(\d+))?\b', re.IGNORECASE)
+EXP_ID_RE = re.compile(r'\bEXP-(\d{3}(?:\.\d+)*)\b', re.IGNORECASE)
 def get_exp_title(filepath):
     with open(filepath, encoding="utf-8") as fh:
         head = fh.read(2048)
     m = TITLE_RE.search(head)
     return m.group(1) if m else os.path.splitext(os.path.basename(filepath))[0]
 
+def split_exp_id(exp_id):
+    return [int(part) for part in exp_id.split(".")]
+
 def get_config_tag(name, title):
     for candidate in (title, name):
         m = EXP_ID_RE.search(candidate)
         if m:
-            base = f"exp{m.group(1)}"
-            if m.group(2):  # revision suffix
-                base += f"-{m.group(2)}"
-            return base
+            return "exp" + m.group(1).replace(".", "-")
     lowered = title.lower()
     if lowered == "baseline" or name == "train":
         return "bl"
@@ -92,13 +92,11 @@ def sort_config_tags(tags):
     def sort_key(tag):
         if tag.startswith("exp"):
             parts = tag[3:].split("-")
-            if parts[0].isdigit():
-                exp_num = int(parts[0])
-                rev_num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-                return (0, exp_num, rev_num, tag)
+            if parts and all(part.isdigit() for part in parts):
+                return (0, tuple(int(part) for part in parts), tag)
         if tag == "bl":
-            return (2, 0, 0, tag)
-        return (1, 0, 0, tag)
+            return (2, (0,), tag)
+        return (1, (0,), tag)
     return sorted(tags, key=sort_key)
 
 def build_log_path(configs, steps):

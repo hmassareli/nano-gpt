@@ -29,8 +29,8 @@ STEP_RE = re.compile(
     re.IGNORECASE,
 )
 FLOAT_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
-EXP_ID_RE = re.compile(r"\bEXP-(\d{3})(?:\.(\d+))?\b", re.IGNORECASE)
-DOC_SECTION_RE = re.compile(r"^(##|###) EXP-(\d{3})(?:\.(\d+))?: .*$", re.MULTILINE)
+EXP_ID_RE = re.compile(r"\bEXP-(\d{3}(?:\.\d+)*)\b", re.IGNORECASE)
+DOC_SECTION_RE = re.compile(r"^(##|###) EXP-(\d{3}(?:\.\d+)*): .*$", re.MULTILINE)
 
 
 @dataclass
@@ -96,13 +96,14 @@ def parse_log(filepath: str) -> list[LogSection]:
         if current is None:
             return
         exp_match = EXP_ID_RE.search(current["section"])
+        exp_id = exp_match.group(1) if exp_match else None
         sections.append(
             LogSection(
                 log_path=filepath,
                 log_name=os.path.basename(filepath),
                 section=current["section"],
                 steps=current["steps"],
-                exp_id=exp_match.group(1) if exp_match else None,
+                exp_id=exp_id,
                 val_bpb=current["val_bpb"],
                 training_seconds=current["training_seconds"],
                 avg_toksec=fmean(toksec_values) if toksec_values else None,
@@ -411,7 +412,7 @@ def normalize_selected_ids(values: list[str] | None) -> set[str] | None:
         if match:
             selected.add(match.group(1))
         else:
-            selected.add(value.zfill(3))
+            selected.add(value)
     return selected
 
 
