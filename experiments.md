@@ -13,7 +13,7 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 | EXP-002 | Benchmarked (100 steps)      | Worse than baseline mid-run; no durable gain               | Negative. Init-only fixes decay too fast.                                                    |
 | EXP-003 | Benchmarked (100 steps)      | No decisive improvement recorded in current notes          | Neutral. Orthogonality idea is plausible, but current setup looks too weak.                  |
 | EXP-004 | Benchmarked (100 steps)      | Harmful due to scale mismatch and conflicting roles        | Harmful. Soft tying fights head/embedding specialization.                                    |
-| EXP-005 | In progress                  | Initial implementation bug fixed; benchmark still pending  | Pending. Training-time bypass is plausible, but not validated yet.                           |
+| EXP-005 | Revisions ready              | `EXP-005.1/.2` implemented; main benchmark still pending   | Promising. Contrastive bypass still looks live if the auxiliary space is better designed.    |
 | EXP-006 | Completed (100 steps)        | val_bpb 1.663 vs baseline 1.564                            | Negative. GELU alone does not help.                                                          |
 | EXP-007 | Completed (300 steps)        | Early crossover, but final val_bpb 1.157 vs 1.144 baseline | Mixed. Gradient diversification helps early, but collapses later.                            |
 | EXP-008 | Planned / awaiting benchmark | No benchmark yet                                           | Pending. Speed-focused variant of EXP-007.                                                   |
@@ -37,7 +37,7 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 | EXP-026 | Planned                      | No benchmark yet                                           | Pending. Learned latent target for supervision instead of reusing input embeddings.          |
 | EXP-027 | Planned                      | No benchmark yet                                           | Pending. Adaptive extra compute only on ambiguous tokens.                                    |
 | EXP-028 | Planned                      | No benchmark yet                                           | Pending. Coarse-to-fine output decomposition for large vocabularies.                         |
-| EXP-029 | Planned                      | No benchmark yet                                           | Pending. JEPA-style latent prediction bypass from intermediate layers.                       |
+| EXP-029 | Benchmarked / mixed          | `029.2` strongest mid-run, but `029.2.2` gave gains back late | Mixed but alive. The family now looks more limited by target interface than by lack of signal. |
 | EXP-030 | Planned                      | No benchmark yet                                           | Pending. Input-dependent routed latent readout instead of static multi-head sum.             |
 
 ## Diagnostic Metrics to Track
@@ -265,6 +265,24 @@ O resultado ruim do EXP-022 tambem precisa ser interpretado com cuidado. Ele nao
 **Why now:** E o bypass mais alinhado com a leitura atual: supervisionar o backbone em espaco de representacao, nao em espaco de vocabulario.
 **Clarification:** Isso nao significa treinar um modelinho separado de traducao token->hidden. Significa usar uma loss auxiliar onde uma parte do proprio modelo aprende a prever uma representacao latente-alvo produzida por outra parte do sistema.
 **Risk:** Colapso representacional ou melhora de alinhamento interno sem ganho em perplexity.
+
+**Current read after the first 1000-step runs:**
+
+- `EXP-029.1` e `EXP-029.3` nao se sustentaram como linha principal.
+- `EXP-029.2` foi a variante mais interessante da familia.
+- `EXP-029.2.2` (`lambda=0.25`) mostrou que existe sinal util no meio do treino, mas perdeu a vantagem tarde.
+
+Isso muda a interpretacao da familia. O problema agora parece menos "a ideia JEPA nao ajuda" e mais "o target atual e o schedule atual ainda nao sao a interface certa para o CE no fim do treino".
+
+**Practical measurement note:** compare `EXP-029.x` against baseline using experiment `ce`, not total `loss`, because the auxiliary latent term is not directly comparable to baseline CE.
+
+**Next corrective variants now implemented:**
+
+- `EXP-029.2.4`: projected next-token latent target
+- `EXP-029.2.5`: next-token logit distillation
+- `EXP-029.2.6`: future-window latent target
+
+These variants all test the same updated thesis: the future signal may be useful, but the current raw-hidden target is probably too blunt.
 
 ## EXP-030: Gated Latent Readout
 

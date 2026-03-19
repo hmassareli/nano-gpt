@@ -18,7 +18,7 @@ NUM_SHARDS="${NUM_SHARDS:-10}"
 
 tokenizer_dir="${HOME}/.cache/autoresearch/tokenizer_v${VOCAB_SIZE}"
 
-echo "Benchmark das revisoes prioritarias"
+echo "Benchmark dos pendentes prioritarios"
 echo "steps=${STEPS} vocab=${VOCAB_SIZE} batch=${DEVICE_BATCH_SIZE} seq_len=${SEQ_LEN}"
 echo "tokenizer_dir=${tokenizer_dir}"
 
@@ -35,14 +35,17 @@ export AUTORESEARCH_TOKENIZER_DIR="${tokenizer_dir}"
 
 echo
 echo "===================================================================="
-echo "Benchmark baseline + revisoes prioritarias"
+echo "Benchmark baseline + pendentes prioritarios"
 echo "===================================================================="
 python benchmark.py \
   train.py \
   experiments/train_exp022_1_cosine_normalized.py \
   experiments/train_exp022_2_predictor_stopgrad.py \
   experiments/train_exp005_1_projection_head.py \
+  experiments/train_exp029_2_4_projected_latent_target.py \
+  experiments/train_exp029_2_5_logit_distillation.py \
   experiments/train_exp005_2_structured_positives.py \
+  experiments/train_exp029_2_6_future_window_latent.py \
   --steps="${STEPS}" \
   --quick-eval \
   --device-batch-size="${DEVICE_BATCH_SIZE}" \

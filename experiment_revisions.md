@@ -28,6 +28,18 @@ The multi-head family improved diversity and sometimes helped early training, bu
 
 The core bypass idea remains attractive. The likely issue is forcing the hidden state toward the raw input embedding geometry, which may conflict with cross-entropy.
 
+### EXP-029.2 changed the diagnosis again
+
+The most informative recent signal is not that the JEPA-style line failed, but that `EXP-029.2` behaved like a phase-specific helper.
+
+- `EXP-029.2` was the strongest member of the `029` family.
+- `EXP-029.2.2` (`lambda=0.25`) improved materially through the middle of training.
+- The gain did not hold to the end of the 1000-step run.
+
+Working interpretation: the auxiliary latent objective is probably carrying some real predictive signal, but the fixed target interface and/or fixed auxiliary weight become misaligned with the late-stage CE objective. This now looks more like a target-design problem than evidence that "future latent signal is useless".
+
+Important measurement note: for `EXP-029.x`, comparisons against baseline should be done with experiment `ce` versus baseline `loss`, not experiment total `loss`, because the auxiliary term is not directly comparable to baseline CE.
+
 ## Proposed Corrective Sub-Experiments
 
 ## EXP-005.1: Contrastive Loss With Projection Head
@@ -85,6 +97,27 @@ Use a slow-moving teacher/EMA copy to generate the latent target.
 
 - Goal: stabilize the target and reduce collapse risk.
 
+## EXP-029.2.4: Projected Next-Token Latent Target
+
+Keep the `EXP-029.2` next-token setup, but match a learned projection of the future hidden state instead of the raw `h_12(t+1)` vector.
+
+- Goal: move the auxiliary target into a smaller, more head-adjacent subspace.
+- Expected benefit: preserve the useful future signal from `029.2` while removing irrelevant hidden-state detail that may fight CE late in training.
+
+## EXP-029.2.5: Next-Token Logit Distillation
+
+Keep the `EXP-029.2` source layer and predictor, but distill the next-token output distribution instead of matching hidden coordinates.
+
+- Goal: pass a signal that is directly tied to next-token ranking rather than full hidden geometry.
+- Expected benefit: retain the useful predictive part of the auxiliary signal while avoiding the need to copy the whole late hidden state.
+
+## EXP-029.2.6: Future-Window Latent Target
+
+Replace the single-step future target with a short-horizon summary over `t+1:t+k`.
+
+- Goal: make the auxiliary target less noisy and less dependent on one exact future hidden state.
+- Expected benefit: encourage short-horizon predictive structure without locking the model to one brittle target geometry.
+
 ## EXP-016.1: Ortho-Reg As Diagnostic Control Only
 
 Do not treat this as a primary optimization direction anymore.
@@ -97,13 +130,16 @@ Do not treat this as a primary optimization direction anymore.
 - If `EXP-005.1` or `EXP-005.2` helps, contrastive bypass becomes a top-tier line.
 - If `EXP-022.1` or `EXP-022.2` helps, the original EXP-022 failure was mostly geometric.
 - If `EXP-029.1` helps quickly, JEPA-style latent supervision becomes the cleanest next family.
+- If `EXP-029.2.4`, `EXP-029.2.5`, or `EXP-029.2.6` helps late, then the `029` family likely failed on target interface, not on the core idea of future latent supervision.
 - If all bypass revisions fail, then the diagnosis needs to be revisited more aggressively.
 
 ## Recommended Order
 
 1. EXP-022.1
 2. EXP-005.1
-3. EXP-029.1
-4. EXP-022.2
-5. EXP-005.2
-6. EXP-029.3
+3. EXP-022.2
+4. EXP-005.2
+5. EXP-029.2.3
+6. EXP-029.2.4
+7. EXP-029.2.5
+8. EXP-029.2.6
