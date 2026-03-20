@@ -1,0 +1,25 @@
+
+============================================================
+  BENCHMARK: 2 configs x 1000 steps  (quick-eval)
+  Log: /workspace/nano-gpt/benchmark_logs/bench_exp005-1_exp029-2-4_0320_1829_1000steps.log
+============================================================
+
+------------------------------------------------------------
+  [1/2] EXP-005.1: Contrastive Loss With Projection Head  (1000 steps)
+------------------------------------------------------------
+
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/experiments/train_exp005_1_projection_head.py", line 554, in <module>
+    tokenizer = Tokenizer.from_directory()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/prepare.py", line 262, in from_directory
+    with open(os.path.join(tokenizer_dir, "tokenizer.pkl"), "rb") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/root/.cache/autoresearch/tokenizer/tokenizer.pkl'
+  *** FALHOU (exit code 1) ***
+
+------------------------------------------------------------
+  [2/2] EXP-029.2.4: Next-Token Projected Latent Target  (1000 steps)  ~33s restantes
+------------------------------------------------------------
+
