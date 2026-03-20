@@ -1,0 +1,42 @@
+
+============================================================
+  BENCHMARK: 2 configs x 31 steps  (sem eval)
+  Log: /workspace/nano-gpt/benchmark_logs/bench_head-shuffle_bl_0320_0053_31steps.log
+============================================================
+
+------------------------------------------------------------
+  [1/2] baseline  (31 steps)
+------------------------------------------------------------
+
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/train.py", line 543, in <module>
+    tokenizer = Tokenizer.from_directory()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/prepare.py", line 238, in from_directory
+    with open(os.path.join(tokenizer_dir, "tokenizer.pkl"), "rb") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/root/.cache/autoresearch/tokenizer/tokenizer.pkl'
+  *** FALHOU (exit code 1) ***
+
+------------------------------------------------------------
+  [2/2] head-shuffle  (31 steps)  ~29s restantes
+------------------------------------------------------------
+
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/train.py", line 543, in <module>
+    tokenizer = Tokenizer.from_directory()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/prepare.py", line 238, in from_directory
+    with open(os.path.join(tokenizer_dir, "tokenizer.pkl"), "rb") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/root/.cache/autoresearch/tokenizer/tokenizer.pkl'
+  *** FALHOU (exit code 1) ***
+
+
+================================================================================
+  RESULTADOS  (31 steps, sem eval, total: 0.8 min)
+================================================================================
+Config                                       tokens_M  VRAM_MB  treino_s  total_s  exit
+---------------------------------------------------------------------------------------
+baseline                                            -        -         -       29     1
+head-shuffle                                        -        -         -       17     1
