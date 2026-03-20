@@ -10,6 +10,7 @@ os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
 import gc
+import math
 import time
 import sys
 import inspect
@@ -482,6 +483,11 @@ TRAIN_BUDGET_MODE = "time"  # options: time, tokens
 TOKEN_BUDGET = 10_000_000
 SKIP_EVAL = False
 QUICK_EVAL = False
+HEAD_DIAG_BATCH_SIZE = 1
+HEAD_DIAG_SEQ_LEN = 128
+HEAD_PERTURB_STEP = -1
+HEAD_PERTURB_SCALE = 0.0
+HEAD_PERTURB_MODE = "noise"
 
 # Model size
 DEPTH = 12              # number of transformer layers
@@ -511,6 +517,15 @@ for arg in sys.argv[1:]:
         N_EMBD_OVERRIDE = int(arg.split("=", 1)[1])
     elif arg == "--no-compile":
         USE_TORCH_COMPILE = False
+    elif arg.startswith("--head-perturb-step="):
+        HEAD_PERTURB_STEP = int(arg.split("=", 1)[1])
+    elif arg.startswith("--head-perturb-scale="):
+        HEAD_PERTURB_SCALE = float(arg.split("=", 1)[1])
+    elif arg.startswith("--head-perturb-mode="):
+        HEAD_PERTURB_MODE = arg.split("=", 1)[1].strip().lower()
+
+if HEAD_PERTURB_MODE not in {"noise", "shuffle"}:
+    raise ValueError(f"--head-perturb-mode must be 'noise' or 'shuffle'; got {HEAD_PERTURB_MODE}")
 
 # ---------------------------------------------------------------------------
 # Setup: tokenizer, model, optimizer, dataloader
@@ -549,6 +564,33 @@ def build_model_config(depth):
 config = build_model_config(DEPTH)
 print(f"Model config: {asdict(config)}")
 
+
+def format_metric_value(name, value):
+    formats = {
+        "head_drift0": ".4f",
+        "head_delta": ".4f",
+        "conf": ".4f",
+        "margin": ".4f",
+        "ent": ".3f",
+        "ent_ratio": ".4f",
+        "post_perturb": ".0f",
+        "perturb_strength": ".4f",
+    }
+    return format(value, formats.get(name, ".4f"))
+
+
+def append_log_metrics(log_line, metrics):
+    if not metrics:
+        return log_line
+    extras = []
+    for name, value in metrics.items():
+        if value is None:
+            continue
+        extras.append(f"{name}: {format_metric_value(name, value)}")
+    if not extras:
+        return log_line
+    return log_line + " | " + " | ".join(extras)
+
 with torch.device("meta"):
     model = GPT(config)
 model.to_empty(device=device)
@@ -577,6 +619,71 @@ optimizer = model.setup_optimizer(
 
 if USE_TORCH_COMPILE:
     model = torch.compile(model, dynamic=False)
+
+
+@torch.no_grad()
+def maybe_apply_head_perturbation(model, step, state):
+    if state["applied"] or HEAD_PERTURB_STEP < 0 or HEAD_PERTURB_SCALE <= 0.0 or step != HEAD_PERTURB_STEP:
+        return
+
+    weight = model.lm_head.weight
+    weight_fp32 = weight.detach().float()
+
+    if HEAD_PERTURB_MODE == "noise":
+        strength = HEAD_PERTURB_SCALE * weight_fp32.std().clamp_min(1e-10).item()
+        noise = torch.randn_like(weight_fp32) * strength
+        weight.add_(noise.to(dtype=weight.dtype))
+    else:
+        strength = max(0.0, min(HEAD_PERTURB_SCALE, 1.0))
+        perm = torch.randperm(weight.size(0), device=weight.device)
+        shuffled = weight_fp32[perm]
+        mixed = torch.lerp(weight_fp32, shuffled, strength)
+        weight.copy_(mixed.to(dtype=weight.dtype))
+
+    state["applied"] = True
+    state["pending_strength"] = strength
+    print(f"  head_perturb | mode: {HEAD_PERTURB_MODE} | strength: {strength:.4f}", flush=True)
+
+
+@torch.no_grad()
+def compute_head_diagnostics(model, idx, state):
+    weight = model.lm_head.weight.detach().float()
+    weight_norm = weight.norm().clamp_min(1e-10)
+    diagnostics = {
+        "head_drift0": (weight - state["initial"]).norm().item() / weight_norm.item(),
+        "head_delta": (weight - state["last"]).norm().item() / weight_norm.item(),
+    }
+
+    sample_b = min(idx.size(0), HEAD_DIAG_BATCH_SIZE)
+    sample_t = min(idx.size(1), HEAD_DIAG_SEQ_LEN)
+    sample_idx = idx[:sample_b, :sample_t]
+
+    with autocast_ctx:
+        hidden = model.forward_backbone(sample_idx)
+        logits = model.forward_head(hidden).float()
+
+    probs = F.softmax(logits, dim=-1)
+    top2 = torch.topk(probs, k=2, dim=-1).values
+    entropy = -(probs * torch.log(probs.clamp_min(1e-10))).sum(dim=-1).mean().item()
+    diagnostics.update(
+        conf=top2[..., 0].mean().item(),
+        margin=(top2[..., 0] - top2[..., 1]).mean().item(),
+        ent=entropy,
+        ent_ratio=entropy / max(math.log(logits.size(-1)), 1e-10),
+        post_perturb=1.0 if state["applied"] else 0.0,
+        perturb_strength=state["pending_strength"],
+    )
+    state["last"] = weight.clone()
+    state["pending_strength"] = 0.0
+    return diagnostics
+
+
+head_diag_state = {
+    "initial": model.lm_head.weight.detach().float().clone(),
+    "last": model.lm_head.weight.detach().float().clone(),
+    "applied": False,
+    "pending_strength": 0.0,
+}
 
 train_loader = make_dataloader(tokenizer, DEVICE_BATCH_SIZE, config.sequence_len, "train")
 x, y, epoch = next(train_loader)  # prefetch first batch
@@ -648,7 +755,12 @@ while True:
     grad_info = compute_grad_metrics(model) if step % 10 == 0 else None
 
     optimizer.step()
+    maybe_apply_head_perturbation(model, step, head_diag_state)
     model.zero_grad(set_to_none=True)
+
+    if grad_info is not None:
+        head_diag = compute_head_diagnostics(model, x, head_diag_state)
+        grad_info["log_line"] = append_log_metrics(grad_info["log_line"], head_diag)
 
     train_loss_f = train_loss.item()
 

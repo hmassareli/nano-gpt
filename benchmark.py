@@ -38,6 +38,32 @@ COOLDOWN_SECONDS = 0
 train_files = []
 train_script_args = []
 
+
+def parse_config_arg(arg):
+    parts = [part for part in arg.split("::") if part]
+    if not parts:
+        return []
+
+    path_spec = parts[0]
+    override_title = None
+    extra_args = []
+    for part in parts[1:]:
+        if part.startswith("--"):
+            extra_args.append(part)
+        elif override_title is None:
+            override_title = part
+        else:
+            extra_args.append(part)
+
+    expanded = glob.glob(path_spec)
+    if not expanded and os.path.isfile(path_spec):
+        expanded = [path_spec]
+
+    return [
+        {"script": filepath, "override_title": override_title, "extra_args": list(extra_args)}
+        for filepath in expanded
+    ]
+
 for arg in sys.argv[1:]:
     if arg.startswith("--steps="):
         STEPS = int(arg.split("=", 1)[1])
@@ -52,18 +78,15 @@ for arg in sys.argv[1:]:
     elif arg.startswith("--"):
         train_script_args.append(arg)
     else:
-        # Treat as train file (support glob)
-        expanded = glob.glob(arg)
-        if expanded:
-            train_files.extend(expanded)
-        elif os.path.isfile(arg):
-            train_files.append(arg)
+        configs = parse_config_arg(arg)
+        if configs:
+            train_files.extend(configs)
         else:
             print(f"Warning: '{arg}' not found, skipping")
 
 # Default: just train.py
 if not train_files:
-    train_files = ["train.py"]
+    train_files = [{"script": "train.py", "override_title": None, "extra_args": []}]
 
 # Extract EXP_TITLE from a train script file
 TITLE_RE = re.compile(r'^EXP_TITLE\s*=\s*["\'](.+?)["\']', re.MULTILINE)
@@ -83,9 +106,10 @@ def get_config_tag(name, title):
         if m:
             return "exp" + m.group(1).replace(".", "-")
     lowered = title.lower()
-    if lowered == "baseline" or name == "train":
+    if lowered == "baseline" or (name == "train" and title == "Baseline"):
         return "bl"
-    tag = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    tag_source = title if title else name
+    tag = re.sub(r"[^a-z0-9]+", "-", tag_source.lower()).strip("-")
     return tag[:24] or "run"
 
 def sort_config_tags(tags):
@@ -123,10 +147,17 @@ def build_log_path(configs, steps):
 
 # Build configs from file list
 CONFIGS = []
-for f in train_files:
-    name = os.path.splitext(os.path.basename(f))[0]
-    title = get_exp_title(f)
-    CONFIGS.append({"name": name, "title": title, "script": f})
+for item in train_files:
+    script = item["script"]
+    name = os.path.splitext(os.path.basename(script))[0]
+    base_title = get_exp_title(script)
+    title = item["override_title"] or base_title
+    CONFIGS.append({
+        "name": name,
+        "title": title,
+        "script": script,
+        "extra_args": item["extra_args"],
+    })
 
 BPB_RE = re.compile(r"val_bpb:\s+([\d.]+)")
 TOKENS_RE = re.compile(r"total_tokens_M:\s+([\d.]+)")
@@ -178,6 +209,7 @@ for i, cfg in enumerate(CONFIGS):
         "--no-compile",
     ]
     cmd.extend(train_script_args)
+    cmd.extend(cfg.get("extra_args", []))
     if EVAL_MODE == "none":
         cmd.append("--no-eval")
     elif EVAL_MODE == "quick":

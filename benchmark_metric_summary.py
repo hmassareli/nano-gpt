@@ -164,6 +164,14 @@ def finalize_section(section):
         "head_effrank",
         "rank_ratio",
         "top10e",
+        "head_drift0",
+        "head_delta",
+        "conf",
+        "margin",
+        "ent",
+        "ent_ratio",
+        "post_perturb",
+        "perturb_strength",
         "cos",
         "union_rank",
     ]
@@ -225,6 +233,16 @@ def print_table(rows, limit):
         headers.append(("uni", 6))
     if any(row["avg_cos"] is not None for row in display_rows):
         headers.append(("cos", 7))
+    if any(row["avg_head_drift0"] is not None for row in display_rows):
+        headers.append(("drift0", 7))
+    if any(row["avg_head_delta"] is not None for row in display_rows):
+        headers.append(("delta", 7))
+    if any(row["avg_conf"] is not None for row in display_rows):
+        headers.append(("conf", 6))
+    if any(row["avg_margin"] is not None for row in display_rows):
+        headers.append(("margin", 7))
+    if any(row["avg_ent_ratio"] is not None for row in display_rows):
+        headers.append(("ent%", 6))
 
     headers.append(("tok/s", 7))
 
@@ -248,6 +266,16 @@ def print_table(rows, limit):
             values.append(format_value(row["avg_union_rank"], 1))
         if any(label == "cos" for label, _ in headers):
             values.append(format_value(row["avg_cos"], 4))
+        if any(label == "drift0" for label, _ in headers):
+            values.append(format_value(row["avg_head_drift0"], 4))
+        if any(label == "delta" for label, _ in headers):
+            values.append(format_value(row["avg_head_delta"], 4))
+        if any(label == "conf" for label, _ in headers):
+            values.append(format_value(row["avg_conf"], 4))
+        if any(label == "margin" for label, _ in headers):
+            values.append(format_value(row["avg_margin"], 4))
+        if any(label == "ent%" for label, _ in headers):
+            values.append(format_value(row["avg_ent_ratio"], 4))
         values.append(format_value(row["avg_toksec"], 0))
         print(separator.join(value.ljust(width) for value, (_, width) in zip(values, headers)))
 
@@ -296,6 +324,12 @@ def print_samples(rows, every, limit):
             ("top10e", 7),
             ("uni", 7),
             ("cos", 7),
+            ("drift0", 7),
+            ("delta", 7),
+            ("conf", 6),
+            ("margin", 7),
+            ("ent%", 6),
+            ("pert", 5),
         ]
         separator = " | "
         print(separator.join(label.ljust(width) for label, width in headers))
@@ -312,6 +346,12 @@ def print_samples(rows, every, limit):
                 format_value(sample.get("top10e"), 1),
                 format_value(sample.get("union_rank"), 1),
                 format_value(sample.get("cos"), 4),
+                format_value(sample.get("head_drift0"), 4),
+                format_value(sample.get("head_delta"), 4),
+                format_value(sample.get("conf"), 4),
+                format_value(sample.get("margin"), 4),
+                format_value(sample.get("ent_ratio"), 4),
+                format_value(sample.get("post_perturb"), 0),
             ]
             print(separator.join(value.ljust(width) for value, (_, width) in zip(values, headers)))
 
@@ -334,6 +374,11 @@ def build_parser():
             "max_rank_ratio",
             "avg_survival",
             "avg_top10e",
+            "avg_head_drift0",
+            "avg_head_delta",
+            "avg_conf",
+            "avg_margin",
+            "avg_ent_ratio",
             "avg_union_rank",
             "avg_toksec",
             "val_bpb",

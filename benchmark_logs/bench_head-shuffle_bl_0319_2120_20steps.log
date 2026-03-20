@@ -1,0 +1,147 @@
+
+============================================================
+  BENCHMARK: 2 configs x 20 steps  (sem eval)
+  Log: C:\Users\Henrique\studies\nano gpt\benchmark_logs\bench_head-shuffle_bl_0319_2120_20steps.log
+============================================================
+
+------------------------------------------------------------
+  [1/2] baseline  (20 steps)
+------------------------------------------------------------
+
+Warning: FlashAttention indisponivel (Cannot install kernel from repo kernels-community/flash-attn3 (revision: main)). Usando fallback de atencao nativo.
+Vocab size: 8,192
+Model config: {'sequence_len': 512, 'vocab_size': 8192, 'n_layer': 12, 'n_head': 4, 'n_kv_head': 4, 'n_embd': 512, 'window_pattern': 'SSSL', 'compute_dtype': torch.bfloat16}
+Parameter counts:
+  wte                     : 4,194,304
+  value_embeds            : 25,165,824
+  lm_head                 : 4,194,304
+  transformer_matrices    : 37,749,504
+  scalars                 : 24
+  total                   : 71,303,960
+Estimated FLOPs per token: 2.681779e+08
+Scaling AdamW LRs by 1/sqrt(512/768) = 1.224745
+Time budget: 300s
+Gradient accumulation steps: 32
+Budget mode: tokens
+Eval batch size: 16
+Token budget: 5,242,880
+step 00000 (0.0%) | loss: 9.010535 | lrm: 1.00 | dt: 39512ms | tok/sec: 6,634 | mfu: 0.2% | epoch: 1 | remaining: 4,980,736 tok    
+  grads | backbone: 0.0325 | head: 0.2250 | survival: 0.1443 | head_effrank: 240.5 | rank_ratio: 0.470 | top10e: 26.4% | head_drift0: 0.9954 | head_delta: 0.9954 | conf: 0.0003 | margin: 0.0000 | ent: 8.964 | ent_ratio: 0.9948 | post_perturb: 0 | perturb_strength: 0.0000
+step 00001 (5.0%) | loss: 9.276027 | lrm: 1.00 | dt: 41208ms | tok/sec: 6,361 | mfu: 0.2% | epoch: 1 | remaining: 4,718,592 tok    
+step 00002 (10.0%) | loss: 9.213193 | lrm: 1.00 | dt: 41192ms | tok/sec: 6,363 | mfu: 0.2% | epoch: 1 | remaining: 4,456,448 tok    
+step 00003 (15.0%) | loss: 8.580032 | lrm: 1.00 | dt: 40728ms | tok/sec: 6,436 | mfu: 0.2% | epoch: 1 | remaining: 4,194,304 tok    
+step 00004 (20.0%) | loss: 8.049274 | lrm: 1.00 | dt: 40756ms | tok/sec: 6,432 | mfu: 0.2% | epoch: 1 | remaining: 3,932,160 tok    
+step 00005 (25.0%) | loss: 7.679262 | lrm: 0.94 | dt: 40735ms | tok/sec: 6,435 | mfu: 0.2% | epoch: 1 | remaining: 3,670,016 tok    
+step 00006 (30.0%) | loss: 7.373308 | lrm: 0.88 | dt: 40736ms | tok/sec: 6,435 | mfu: 0.2% | epoch: 1 | remaining: 3,407,872 tok    
+step 00007 (35.0%) | loss: 7.125661 | lrm: 0.82 | dt: 40848ms | tok/sec: 6,417 | mfu: 0.2% | epoch: 1 | remaining: 3,145,728 tok    
+step 00008 (40.0%) | loss: 6.911819 | lrm: 0.76 | dt: 41130ms | tok/sec: 6,373 | mfu: 0.2% | epoch: 1 | remaining: 2,883,584 tok    
+step 00009 (45.0%) | loss: 6.741533 | lrm: 0.70 | dt: 40736ms | tok/sec: 6,435 | mfu: 0.2% | epoch: 1 | remaining: 2,621,440 tok    
+step 00010 (50.0%) | loss: 6.596222 | lrm: 0.64 | dt: 40808ms | tok/sec: 6,423 | mfu: 0.2% | epoch: 1 | remaining: 2,359,296 tok    
+  grads | backbone: 0.0270 | head: 0.2263 | survival: 0.1191 | head_effrank: 147.6 | rank_ratio: 0.288 | top10e: 38.6% | head_drift0: 1.0017 | head_delta: 0.8708 | conf: 0.1325 | margin: 0.0686 | ent: 5.512 | ent_ratio: 0.6117 | post_perturb: 0 | perturb_strength: 0.0000
+step 00011 (55.0%) | loss: 6.466957 | lrm: 0.58 | dt: 41342ms | tok/sec: 6,340 | mfu: 0.2% | epoch: 1 | remaining: 2,097,152 tok    
+step 00012 (60.0%) | loss: 6.371601 | lrm: 0.52 | dt: 41071ms | tok/sec: 6,382 | mfu: 0.2% | epoch: 1 | remaining: 1,835,008 tok    
+step 00013 (65.0%) | loss: 6.275655 | lrm: 0.46 | dt: 43844ms | tok/sec: 5,979 | mfu: 0.2% | epoch: 1 | remaining: 1,572,864 tok    
+step 00014 (70.0%) | loss: 6.187563 | lrm: 0.40 | dt: 52264ms | tok/sec: 5,015 | mfu: 0.1% | epoch: 1 | remaining: 1,310,720 tok    
+step 00015 (75.0%) | loss: 6.129309 | lrm: 0.34 | dt: 45610ms | tok/sec: 5,747 | mfu: 0.2% | epoch: 1 | remaining: 1,048,576 tok    
+step 00016 (80.0%) | loss: 6.068275 | lrm: 0.28 | dt: 41179ms | tok/sec: 6,365 | mfu: 0.2% | epoch: 1 | remaining: 786,432 tok    
+step 00017 (85.0%) | loss: 5.998657 | lrm: 0.22 | dt: 41417ms | tok/sec: 6,329 | mfu: 0.2% | epoch: 1 | remaining: 524,288 tok    
+step 00018 (90.0%) | loss: 5.940565 | lrm: 0.16 | dt: 40748ms | tok/sec: 6,433 | mfu: 0.2% | epoch: 1 | remaining: 262,144 tok    
+step 00019 (95.0%) | loss: 5.895411 | lrm: 0.10 | dt: 40753ms | tok/sec: 6,432 | mfu: 0.2% | epoch: 1 | remaining: 0 tok    
+
+---
+val_bpb:          (pulado por --no-eval)
+training_seconds: 388.2
+total_seconds:    838.1
+peak_vram_mb:     5600.0
+mfu_percent:      0.18
+total_tokens_M:   5.2
+num_steps:        20
+num_params_M:     71.3
+depth:            12
+
+------------------------------------------------------------
+  [2/2] head-shuffle  (20 steps)  ~14min restantes
+------------------------------------------------------------
+
+Warning: FlashAttention indisponivel (Cannot install kernel from repo kernels-community/flash-attn3 (revision: main)). Usando fallback de atencao nativo.
+Vocab size: 8,192
+Model config: {'sequence_len': 512, 'vocab_size': 8192, 'n_layer': 12, 'n_head': 4, 'n_kv_head': 4, 'n_embd': 512, 'window_pattern': 'SSSL', 'compute_dtype': torch.bfloat16}
+Parameter counts:
+  wte                     : 4,194,304
+  value_embeds            : 25,165,824
+  lm_head                 : 4,194,304
+  transformer_matrices    : 37,749,504
+  scalars                 : 24
+  total                   : 71,303,960
+Estimated FLOPs per token: 2.681779e+08
+Scaling AdamW LRs by 1/sqrt(512/768) = 1.224745
+Time budget: 300s
+Gradient accumulation steps: 32
+Budget mode: tokens
+Eval batch size: 16
+Token budget: 5,242,880
+step 00000 (0.0%) | loss: 9.010535 | lrm: 1.00 | dt: 39113ms | tok/sec: 6,702 | mfu: 0.2% | epoch: 1 | remaining: 4,980,736 tok    
+  grads | backbone: 0.0325 | head: 0.2228 | survival: 0.1458 | head_effrank: 227.4 | rank_ratio: 0.444 | top10e: 27.6% | head_drift0: 0.9955 | head_delta: 0.9955 | conf: 0.0003 | margin: 0.0000 | ent: 8.964 | ent_ratio: 0.9948 | post_perturb: 0 | perturb_strength: 0.0000
+step 00001 (5.0%) | loss: 9.301842 | lrm: 1.00 | dt: 40796ms | tok/sec: 6,425 | mfu: 0.2% | epoch: 1 | remaining: 4,718,592 tok    
+step 00002 (10.0%) | loss: 9.228971 | lrm: 1.00 | dt: 40737ms | tok/sec: 6,435 | mfu: 0.2% | epoch: 1 | remaining: 4,456,448 tok    
+step 00003 (15.0%) | loss: 8.581371 | lrm: 1.00 | dt: 40757ms | tok/sec: 6,431 | mfu: 0.2% | epoch: 1 | remaining: 4,194,304 tok    
+step 00004 (20.0%) | loss: 8.041513 | lrm: 1.00 | dt: 40754ms | tok/sec: 6,432 | mfu: 0.2% | epoch: 1 | remaining: 3,932,160 tok    
+step 00005 (25.0%) | loss: 7.666129 | lrm: 0.94 | dt: 40789ms | tok/sec: 6,426 | mfu: 0.2% | epoch: 1 | remaining: 3,670,016 tok    
+step 00006 (30.0%) | loss: 7.360207 | lrm: 0.88 | dt: 40754ms | tok/sec: 6,432 | mfu: 0.2% | epoch: 1 | remaining: 3,407,872 tok    
+step 00007 (35.0%) | loss: 7.114060 | lrm: 0.82 | dt: 40745ms | tok/sec: 6,433 | mfu: 0.2% | epoch: 1 | remaining: 3,145,728 tok    
+step 00008 (40.0%) | loss: 6.903159 | lrm: 0.76 | dt: 41044ms | tok/sec: 6,386 | mfu: 0.2% | epoch: 1 | remaining: 2,883,584 tok    
+step 00009 (45.0%) | loss: 6.721810 | lrm: 0.70 | dt: 41927ms | tok/sec: 6,252 | mfu: 0.2% | epoch: 1 | remaining: 2,621,440 tok    
+  head_perturb | mode: shuffle | strength: 0.1500
+step 00010 (50.0%) | loss: 6.574978 | lrm: 0.64 | dt: 42287ms | tok/sec: 6,199 | mfu: 0.2% | epoch: 1 | remaining: 2,359,296 tok    
+  grads | backbone: 0.0275 | head: 0.2308 | survival: 0.1192 | head_effrank: 157.3 | rank_ratio: 0.307 | top10e: 37.1% | head_drift0: 1.0021 | head_delta: 0.8662 | conf: 0.1120 | margin: 0.0631 | ent: 6.142 | ent_ratio: 0.6816 | post_perturb: 1 | perturb_strength: 0.1500
+step 00011 (55.0%) | loss: 6.457089 | lrm: 0.58 | dt: 41199ms | tok/sec: 6,362 | mfu: 0.2% | epoch: 1 | remaining: 2,097,152 tok    
+step 00012 (60.0%) | loss: 6.365224 | lrm: 0.52 | dt: 42548ms | tok/sec: 6,161 | mfu: 0.2% | epoch: 1 | remaining: 1,835,008 tok    
+step 00013 (65.0%) | loss: 6.267503 | lrm: 0.46 | dt: 40933ms | tok/sec: 6,404 | mfu: 0.2% | epoch: 1 | remaining: 1,572,864 tok    
+step 00014 (70.0%) | loss: 6.193353 | lrm: 0.40 | dt: 42335ms | tok/sec: 6,192 | mfu: 0.2% | epoch: 1 | remaining: 1,310,720 tok    
+step 00015 (75.0%) | loss: 6.127183 | lrm: 0.34 | dt: 41605ms | tok/sec: 6,300 | mfu: 0.2% | epoch: 1 | remaining: 1,048,576 tok    
+step 00016 (80.0%) | loss: 6.054099 | lrm: 0.28 | dt: 41340ms | tok/sec: 6,341 | mfu: 0.2% | epoch: 1 | remaining: 786,432 tok    
+step 00017 (85.0%) | loss: 5.988881 | lrm: 0.22 | dt: 41215ms | tok/sec: 6,360 | mfu: 0.2% | epoch: 1 | remaining: 524,288 tok    
+step 00018 (90.0%) | loss: 5.934689 | lrm: 0.16 | dt: 41224ms | tok/sec: 6,358 | mfu: 0.2% | epoch: 1 | remaining: 262,144 tok    
+step 00019 (95.0%) | loss: 5.887728 | lrm: 0.10 | dt: 42778ms | tok/sec: 6,128 | mfu: 0.2% | epoch: 1 | remaining: 0 tok    
+
+---
+val_bpb:          (pulado por --no-eval)
+training_seconds: 375.2
+total_seconds:    826.3
+peak_vram_mb:     5600.0
+mfu_percent:      0.19
+total_tokens_M:   5.2
+num_steps:        20
+num_params_M:     71.3
+depth:            12
+
+
+================================================================================
+  RESULTADOS  (20 steps, sem eval, total: 27.9 min)
+================================================================================
+Config                                       tokens_M  VRAM_MB  treino_s  total_s  exit
+---------------------------------------------------------------------------------------
+baseline                                          5.2     5600     388.2      841     0
+head-shuffle                                      5.2     5600     375.2      830     0
+
+Mais rapido: head-shuffle  treino=375.2s
+
+================================================================================
+  METRICAS DE CONVERGENCIA
+================================================================================
+Config                                       loss_i   loss_f     drop   drop/min  avg_tok/s  loss/Mtok
+------------------------------------------------------------------------------------------------------
+baseline                                      9.011    5.895    3.115     0.4815       6288     0.5991
+head-shuffle                                  9.011    5.888    3.123     0.4994       6358     0.6005
+
+  Loss por step (comparacao direta):
+    Step                       baseline                   head-shuffle
+  --------------------------------------------------------------------
+       5                         7.6793                         7.6661
+      10                         6.5962                         6.5750
+
+  Tempo acumulado por step (s):
+    Step                       baseline                   head-shuffle
+  --------------------------------------------------------------------
+       5                          244.1                          242.9
+      10                          448.4                          449.7
