@@ -14,15 +14,39 @@ import sys
 import time
 import math
 import argparse
+import importlib
 import pickle
 import json
+import subprocess
 from multiprocessing import Pool
 
-import requests
-import pyarrow.parquet as pq
-import rustbpe
-import tiktoken
-import torch
+AUTO_INSTALL_PREPARE_DEPS = os.environ.get("AUTORESEARCH_PREPARE_AUTO_INSTALL", "1") != "0"
+
+
+def import_or_install(module_name, package_spec=None):
+    try:
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        missing_root = (exc.name or "").split(".", 1)[0]
+        module_root = module_name.split(".", 1)[0]
+        if missing_root and missing_root != module_root:
+            raise
+        if not AUTO_INSTALL_PREPARE_DEPS:
+            raise
+        package_spec = package_spec or module_root
+        print(
+            f"Missing dependency '{module_name}'. Installing {package_spec} with pip...",
+            file=sys.stderr,
+        )
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package_spec])
+        return importlib.import_module(module_name)
+
+
+requests = import_or_install("requests", "requests>=2.32.0")
+pq = import_or_install("pyarrow.parquet", "pyarrow>=21.0.0")
+rustbpe = import_or_install("rustbpe", "rustbpe>=0.1.0")
+tiktoken = import_or_install("tiktoken", "tiktoken>=0.11.0")
+torch = import_or_install("torch", "torch")
 
 # ---------------------------------------------------------------------------
 # Constants (fixed, do not modify)

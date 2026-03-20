@@ -300,8 +300,12 @@ if valid:
     if delta < 0.005:
         log("(delta pequeno — considere rodar com mais steps para confirmar)")
 elif EVAL_MODE == "none":
-    fastest = min(results, key=lambda r: r['time_s'] or float('inf'))
-    log(f"\nMais rapido: {fastest['name']}  treino={fastest['time_s']:.1f}s")
+    successful = [r for r in results if r['time_s'] is not None]
+    if successful:
+        fastest = min(successful, key=lambda r: r['time_s'])
+        log(f"\nMais rapido: {fastest['name']}  treino={fastest['time_s']:.1f}s")
+    else:
+        log("\nNenhum benchmark completou treino; sem resultado de tempo para comparar.")
 
 # Convergence metrics
 complete = [r for r in results if r.get('step_data') and len(r['step_data']) >= 2 and r['time_s']]
