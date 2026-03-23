@@ -1,0 +1,28 @@
+
+============================================================
+  BENCHMARK: 1 configs x 500 steps  (quick-eval)
+  Log: /workspace/nano-gpt/benchmark_logs/bench_bl_0323_2044_500steps.log
+============================================================
+
+------------------------------------------------------------
+  [1/1] Baseline  (500 steps)
+------------------------------------------------------------
+
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Traceback (most recent call last):
+  File "/workspace/nano-gpt/train.py", line 543, in <module>
+    tokenizer = Tokenizer.from_directory()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/nano-gpt/prepare.py", line 262, in from_directory
+    with open(os.path.join(tokenizer_dir, "tokenizer.pkl"), "rb") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/root/.cache/autoresearch/tokenizer/tokenizer.pkl'
+  *** FALHOU (exit code 1) ***
+
+
+================================================================================
+  RESULTADOS  (500 steps, quick-eval, total: 0.5 min)
+================================================================================
+Config                                        val_bpb   tokens_M  VRAM_MB  treino_s  total_s  exit
+--------------------------------------------------------------------------------------------------
+Baseline                                            -          -        -         -       30     1
