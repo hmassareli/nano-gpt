@@ -52,8 +52,98 @@ Keep these in a separate diagnostics table, not in the main outcome table. The m
 | `top10e` | Top-10 singular value energy         | Detects concentration/collapse of gradient energy in a few directions       | All experiments |
 | `cos`    | Mean cosine similarity between heads | Detects head collapse / loss of diversity                                   | Multi-head only |
 | `uni`    | Union rank across heads              | Measures whether multiple heads cover more gradient directions jointly      | Multi-head only |
+| `drift0` | LM-head drift from initialization    | Measures how far the readout moved globally from its starting geometry      | All experiments |
+| `delta`  | LM-head drift since last log         | Measures how much the readout is still moving locally at the current stage  | All experiments |
+| `conf`   | Mean top-1 probability               | Fast proxy for output sharpness / confidence after a perturbation           | All experiments |
+| `margin` | Mean top1-top2 probability gap       | Detects whether the head still separates candidates cleanly                 | All experiments |
+| `ent%`   | Entropy ratio vs `log(V)`            | Normalized uncertainty metric, robust across vocabulary sizes               | All experiments |
 
 Recommended rule: use the same-step matched baseline for every metric comparison. Do not compare a 200-step experiment against a 1000-step baseline metric row; the diagnostics become misleading.
+
+## New Cross-Cutting Diagnostic Probe
+
+We now have a minimal causal probe for LM-head organization/hardening directly in `train.py`.
+
+- Instrumentation added to the standard `grads | ...` line:
+   - `head_drift0`
+   - `head_delta`
+   - `conf`
+   - `margin`
+   - `ent`
+   - `ent_ratio`
+   - `post_perturb`
+   - `perturb_strength`
+- One-shot LM-head perturbation controls:
+   - `--head-perturb-step`
+   - `--head-perturb-scale`
+   - `--head-perturb-mode=noise|shuffle`
+- Benchmark harness updated so the same `train.py` can be run in labeled variants with extra per-run CLI args.
+
+### Early Probe Result (current status)
+
+- 32k-vocab baseline and `head-shuffle` runs now execute with the new diagnostics.
+- Early organization is clearly visible even without intervention:
+   - `conf` rises quickly
+   - `ent_ratio` falls quickly
+   - `head_delta` drops strongly between steps 10 and 30
+- In the first causal probe (`shuffle`, strength `0.15`, perturb at step `10`):
+   - the perturbation fired correctly
+   - confidence/entropy worsened immediately after the shock
+   - by step `30`, loss and confidence-like metrics were already very close to baseline again
+
+### Current Interpretation
+
+- This is evidence for fast LM-head organization and rapid functional recovery after a moderate early perturbation.
+- This is **not yet** sufficient to claim that late-stage solidification/hardening is resolved as a diagnosis.
+- The more informative pending test is the same shuffle probe applied later in training (for example step `100` in a `300`-step run), where recovery persistence can be judged more cleanly.
+
+### TODO: mapear quando o LM head deixa de ser o bottleneck dominante
+
+Contexto: sob a lente de `the_main_problem.md`, o objetivo aqui nao e apenas medir se o `lm_head` "endurece", mas identificar em que ponto do treino o gargalo principal deixa de ser o canal de compressao `V -> D` e passa a ser mais de representacao/backbone/regime tardio.
+
+Pergunta central:
+
+- Em quais steps o `lm_head` ainda e o bottleneck causal do aprendizado, e a partir de quais steps ele passa a ser apenas um componente ja organizado, com baixo potencial de ganho adicional?
+
+Hipotese operacional atual:
+
+- Early training: o `lm_head` ainda esta se organizando; melhorias de geometria/conditioning/bypass devem render mais.
+- Mid training: o `lm_head` ja esta relativamente robusto, mas ainda pode haver sensibilidade mensuravel a perturbacoes e congelamento.
+- Late training: o `lm_head` continua mudando localmente, mas o gargalo principal provavelmente migra para backbone, interface latente, capacidade ou regime de LR baixo.
+
+Testes TODO prioritarios:
+
+1. **Sweep de perturbacao por step**
+   - Rodar `--head-perturb-mode=shuffle` com `--head-perturb-scale=0.15` em steps `25, 50, 100, 150, 200`.
+   - Medir perda imediata, tempo de recuperacao e diferenca de loss acumulada nos `20-50` steps seguintes.
+   - Leitura: se perturbacoes tardias quase nao alteram a trajetoria, isso e evidencia de que o `lm_head` ja nao e o bottleneck dominante naquele regime.
+
+2. **Sweep de severidade da perturbacao**
+   - Repetir o teste acima com escala `0.30` e, se ainda estiver estavel, `0.50`.
+   - Leitura: `0.15` mede robustez local; escalas maiores ajudam a distinguir "head ja robusto" de "teste fraco demais para causar dano estrutural".
+
+3. **Freeze do LM head por step**
+   - Congelar `lm_head.weight` a partir de steps `25, 50, 100, 150, 200` e seguir o treino normal.
+   - Comparar com baseline no mesmo budget.
+   - Leitura: se congelar cedo machuca muito e congelar tarde quase nao muda nada, isso responde de forma mais causal quando o `lm_head` deixa de ser o limitante principal.
+
+4. **Curva de recuperacao pos-choque**
+   - Para cada perturbacao, registrar explicitamente `delta_loss_t`, `steps_to_recover` e area sob o excesso de loss ate recuperar o baseline pareado.
+   - Leitura: a perda final pode mascarar dano temporario relevante; a curva de recuperacao mede melhor a dependencia funcional do treino no `lm_head` naquele ponto.
+
+5. **Tracking de solidificacao local do head**
+   - Consolidar uma tabela por step com `head_delta`, `head_drift0`, `conf`, `margin`, `ent_ratio`, `rank_ratio`, `top10e`, `survival`.
+   - Leitura: queremos separar tres coisas diferentes: movimento do peso, organizacao funcional da distribuicao de logits e relevancia causal do `lm_head` para a continuidade do aprendizado.
+
+6. **Comparar probes com os experimentos que ajudam no early phase**
+   - Cruzar esses testes com os candidatos que mostraram ganho inicial (`EXP-007`, `EXP-016`, familia `EXP-029`, e futuros bypasses).
+   - Leitura: se um metodo ajuda muito antes do step em que o `lm_head` endurece, mas quase nada depois, isso reforca a tese de que ele melhora principalmente a fase de formacao do canal de saida.
+
+Critério de decisão:
+
+- Se perturbacao/freeze tardios tiverem efeito minimo, tratar o `lm_head` como gargalo principalmente de fase inicial/intermediaria.
+- Se ainda houver grande custo de recuperacao mesmo tarde, a tese forte de gargalo estrutural segue viva e os proximos experimentos devem continuar mirando `V -> D` ou bypass causal.
+- Se os experimentos "melhores" so ajudarem antes do ponto de endurecimento, isso explica por que o ganho desaparece depois: eles resolvem a organizacao do readout, mas nao o limitante dominante do restante do treino.
 
 ---
 
@@ -219,6 +309,8 @@ Essa releitura tambem organiza melhor a familia multi-head. O ganho inicial do E
 
 O resultado ruim do EXP-022 tambem precisa ser interpretado com cuidado. Ele nao invalida bypass. O mais provavel e que a implementacao atual force uma geometria inadequada (`h` aproximando embedding bruto do token) e entre em conflito com a CE. O ponto importante permanece: um gradiente direto no hidden, sem passar pelo LM head, continua sendo a linha conceitualmente mais alinhada com o diagnostico.
 
+Os novos probes de perturbacao do LM head reforcam esse quadro, mas ainda de forma parcial. O choque precoce em `step=10` com `shuffle=0.15` piora momentaneamente confianca e entropia, mas o comportamento funcional volta muito perto do baseline ate `step=30`. Isso sugere um atrator funcional precoce ou recuperacao rapida, mas ainda nao resolve a questao mais forte de **solidificacao tardia**. Esse ponto segue em aberto ate os testes com perturbacao mais tarde no treino.
+
 ### What The Current Results Already Rule Out
 
 - Melhorar condicionamento do head por si so nao parece suficiente.
@@ -281,8 +373,17 @@ Isso muda a interpretacao da familia. O problema agora parece menos "a ideia JEP
 - `EXP-029.2.4`: projected next-token latent target
 - `EXP-029.2.5`: next-token logit distillation
 - `EXP-029.2.6`: future-window latent target
+- `EXP-029.2.7`: projected future-window target with latent warmdown
+
+**New CALM-inspired variants now implemented:**
+
+- `EXP-026.1`: future-window learned codec with explicit codec reconstruction loss
 
 These variants all test the same updated thesis: the future signal may be useful, but the current raw-hidden target is probably too blunt.
+
+The new `EXP-029.2.7` is the strongest immediate synthesis of the current evidence because it combines the three corrections that already looked independently justified: narrower target geometry, short-horizon future summary, and reduced late-stage auxiliary pressure.
+
+The new `EXP-026.1` is a practical bridge toward the CALM reading without requiring a fully separate pretraining pipeline for a frozen codec. It learns a compact future-summary target space online, while keeping the codec pressure separated from CE through a dedicated reconstruction term.
 
 ## EXP-030: Gated Latent Readout
 

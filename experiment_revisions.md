@@ -40,6 +40,38 @@ Working interpretation: the auxiliary latent objective is probably carrying some
 
 Important measurement note: for `EXP-029.x`, comparisons against baseline should be done with experiment `ce` versus baseline `loss`, not experiment total `loss`, because the auxiliary term is not directly comparable to baseline CE.
 
+## Cross-Cutting Measurement Revision: LM-Head Perturbation Probe
+
+We added a shared diagnostic probe to the baseline `train.py` so future revisions can be interpreted with a cleaner causal test.
+
+- New logging fields on the standard `grads | ...` line:
+	- `head_drift0`
+	- `head_delta`
+	- `conf`
+	- `margin`
+	- `ent`
+	- `ent_ratio`
+	- `post_perturb`
+	- `perturb_strength`
+- New one-shot perturbation controls:
+	- `--head-perturb-step`
+	- `--head-perturb-scale`
+	- `--head-perturb-mode=noise|shuffle`
+
+### What the first probe already showed
+
+- With `shuffle=0.15` at `step=10` on the 32k-vocab baseline, the head took a measurable local hit:
+	- lower `conf`
+	- lower `margin`
+	- higher `ent_ratio`
+- By `step=30`, loss and confidence-like metrics were already close to the unperturbed baseline again.
+
+### What remains unresolved
+
+- This early result supports fast recovery after a moderate early perturbation.
+- It does **not** yet establish whether the LM head becomes more rigid later in training.
+- The next decisive measurement is the same probe much later in training (for example `step=100` within a `300`-step run), then checking whether the deviation persists through later checkpoints.
+
 ## Proposed Corrective Sub-Experiments
 
 ## EXP-005.1: Contrastive Loss With Projection Head

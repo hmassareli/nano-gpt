@@ -42,10 +42,12 @@ python benchmark.py \
   experiments/train_exp022_1_cosine_normalized.py \
   experiments/train_exp022_2_predictor_stopgrad.py \
   experiments/train_exp005_1_projection_head.py \
+  experiments/train_exp026_1_future_window_codec.py \
   experiments/train_exp029_2_4_projected_latent_target.py \
   experiments/train_exp029_2_5_logit_distillation.py \
   experiments/train_exp005_2_structured_positives.py \
   experiments/train_exp029_2_6_future_window_latent.py \
+  experiments/train_exp029_2_7_projected_future_window_warmdown.py \
   --steps="${STEPS}" \
   --quick-eval \
   --device-batch-size="${DEVICE_BATCH_SIZE}" \
