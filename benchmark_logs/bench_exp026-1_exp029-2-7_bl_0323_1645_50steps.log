@@ -80,3 +80,19 @@ step 00046 (92.0%) | loss: 5.263283 | lrm: 0.14 | dt: 74765ms | tok/sec: 3,506 |
 step 00047 (94.0%) | loss: 5.241260 | lrm: 0.11 | dt: 87260ms | tok/sec: 3,004 | mfu: 0.1% | epoch: 1 | remaining: 524,288 tok    
 step 00048 (96.0%) | loss: 5.228621 | lrm: 0.09 | dt: 84958ms | tok/sec: 3,085 | mfu: 0.1% | epoch: 1 | remaining: 262,144 tok    
 step 00049 (98.0%) | loss: 5.209696 | lrm: 0.06 | dt: 90595ms | tok/sec: 2,893 | mfu: 0.1% | epoch: 1 | remaining: 0 tok    
+
+---
+val_bpb:          1.811476
+training_seconds: 2712.1
+total_seconds:    4157.3
+peak_vram_mb:     5600.0
+mfu_percent:      0.10
+total_tokens_M:   13.1
+num_steps:        50
+num_params_M:     71.3
+depth:            12
+
+------------------------------------------------------------
+  [2/3] EXP-029.2.7: Projected Future-Window Latent Prediction (Warmdown)  (50 steps)  ~139min restantes
+------------------------------------------------------------
+

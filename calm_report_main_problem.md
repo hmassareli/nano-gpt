@@ -357,8 +357,7 @@ Se ela so melhorar CE cedo, mas continuar igualmente dependente do head, provave
 - `EXP-029.2.7` implementado em `experiments/train_exp029_2_7_projected_future_window_warmdown.py`
 - `EXP-026.1` implementado em `experiments/train_exp026_1_future_window_codec.py`
 
-Observacao: o `EXP-026.1` implementado e a versao pratica viavel no pipeline atual, com codec aprendido online e estabilizado por reconstrucao, nao um codec totalmente pretreinado e congelado fora do loop principal.
-5. freeze/perturb sweeps nas melhores variantes
+Observacao: o `EXP-026.1` implementado e a versao pratica viavel no pipeline atual, com codec aprendido online e estabilizado por reconstrucao, nao um codec totalmente pretreinado e congelado fora do loop principal. 5. freeze/perturb sweeps nas melhores variantes
 
 ## Minha aposta atual
 

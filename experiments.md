@@ -65,31 +65,31 @@ Recommended rule: use the same-step matched baseline for every metric comparison
 We now have a minimal causal probe for LM-head organization/hardening directly in `train.py`.
 
 - Instrumentation added to the standard `grads | ...` line:
-   - `head_drift0`
-   - `head_delta`
-   - `conf`
-   - `margin`
-   - `ent`
-   - `ent_ratio`
-   - `post_perturb`
-   - `perturb_strength`
+  - `head_drift0`
+  - `head_delta`
+  - `conf`
+  - `margin`
+  - `ent`
+  - `ent_ratio`
+  - `post_perturb`
+  - `perturb_strength`
 - One-shot LM-head perturbation controls:
-   - `--head-perturb-step`
-   - `--head-perturb-scale`
-   - `--head-perturb-mode=noise|shuffle`
+  - `--head-perturb-step`
+  - `--head-perturb-scale`
+  - `--head-perturb-mode=noise|shuffle`
 - Benchmark harness updated so the same `train.py` can be run in labeled variants with extra per-run CLI args.
 
 ### Early Probe Result (current status)
 
 - 32k-vocab baseline and `head-shuffle` runs now execute with the new diagnostics.
 - Early organization is clearly visible even without intervention:
-   - `conf` rises quickly
-   - `ent_ratio` falls quickly
-   - `head_delta` drops strongly between steps 10 and 30
+  - `conf` rises quickly
+  - `ent_ratio` falls quickly
+  - `head_delta` drops strongly between steps 10 and 30
 - In the first causal probe (`shuffle`, strength `0.15`, perturb at step `10`):
-   - the perturbation fired correctly
-   - confidence/entropy worsened immediately after the shock
-   - by step `30`, loss and confidence-like metrics were already very close to baseline again
+  - the perturbation fired correctly
+  - confidence/entropy worsened immediately after the shock
+  - by step `30`, loss and confidence-like metrics were already very close to baseline again
 
 ### Current Interpretation
 
