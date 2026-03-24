@@ -38,6 +38,8 @@ Base model: 71M params, vocab=8192, n_embd=512, 12 layers, seq_len=512
 | EXP-027 | Planned                      | No benchmark yet                                              | Pending. Adaptive extra compute only on ambiguous tokens.                                      |
 | EXP-028 | Planned                      | No benchmark yet                                              | Pending. Coarse-to-fine output decomposition for large vocabularies.                           |
 | EXP-029 | Benchmarked / mixed          | `029.2` strongest mid-run, but `029.2.2` gave gains back late | Mixed but alive. The family now looks more limited by target interface than by lack of signal. |
+| EXP-029.2.8 | Implemented / awaiting benchmark | No benchmark yet                                              | New. Multi-horizon projected targets test whether richer short-horizon supervision beats a single averaged future summary. |
+| EXP-029.3.1 | Implemented / awaiting benchmark | No benchmark yet                                              | New. EMA teacher + projected future-window target + warmdown tests stabilization of the latent interface. |
 | EXP-030 | Planned                      | No benchmark yet                                              | Pending. Input-dependent routed latent readout instead of static multi-head sum.               |
 
 ## Diagnostic Metrics to Track

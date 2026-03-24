@@ -150,6 +150,20 @@ Replace the single-step future target with a short-horizon summary over `t+1:t+k
 - Goal: make the auxiliary target less noisy and less dependent on one exact future hidden state.
 - Expected benefit: encourage short-horizon predictive structure without locking the model to one brittle target geometry.
 
+## EXP-029.2.8: Multi-Horizon Projected Latent Prediction
+
+Keep the projected future-window line, but predict each short-horizon target separately instead of collapsing them into one mean target.
+
+- Goal: bring the `multi-token prediction` intuition into the latent-bypass line without paying for extra vocab-space heads.
+- Expected benefit: richer predictive supervision early, less target blurring than a single averaged future summary, and a cleaner test of whether multiple short horizons are the missing ingredient.
+
+## EXP-029.3.1: EMA Projected Future-Window Teacher
+
+Combine the EMA teacher line with the projected future-window target and the same late warmdown logic that helped the 029.2 family look less conflicted.
+
+- Goal: keep the target stable while still avoiding raw hidden-coordinate matching.
+- Expected benefit: isolate whether the remaining failure mode is target instability rather than absence of useful latent signal.
+
 ## EXP-016.1: Ortho-Reg As Diagnostic Control Only
 
 Do not treat this as a primary optimization direction anymore.
@@ -162,7 +176,7 @@ Do not treat this as a primary optimization direction anymore.
 - If `EXP-005.1` or `EXP-005.2` helps, contrastive bypass becomes a top-tier line.
 - If `EXP-022.1` or `EXP-022.2` helps, the original EXP-022 failure was mostly geometric.
 - If `EXP-029.1` helps quickly, JEPA-style latent supervision becomes the cleanest next family.
-- If `EXP-029.2.4`, `EXP-029.2.5`, or `EXP-029.2.6` helps late, then the `029` family likely failed on target interface, not on the core idea of future latent supervision.
+- If `EXP-029.2.4`, `EXP-029.2.5`, `EXP-029.2.6`, `EXP-029.2.8`, or `EXP-029.3.1` helps late, then the `029` family likely failed on target interface, not on the core idea of future latent supervision.
 - If all bypass revisions fail, then the diagnosis needs to be revisited more aggressively.
 
 ## Recommended Order
@@ -175,3 +189,5 @@ Do not treat this as a primary optimization direction anymore.
 6. EXP-029.2.4
 7. EXP-029.2.5
 8. EXP-029.2.6
+9. EXP-029.2.8
+10. EXP-029.3.1

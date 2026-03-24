@@ -6,6 +6,7 @@ Uso:
     uv run benchmark.py train.py train_exp002.py --steps=100  # mais steps
     uv run benchmark.py experiments/train_*.py --no-eval   # glob de experimentos
     uv run benchmark.py --steps=100 --full-eval             # sem args = roda train.py
+    uv run benchmark.py train.py exp.py                     # auto-descobre batch size e salva localmente
 """
 
 import subprocess
@@ -14,10 +15,13 @@ import re
 import os
 import time
 import glob
+import json
+import platform
 from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(SCRIPT_DIR, "benchmark_logs")
+LOCAL_CACHE_PATH = os.path.join(SCRIPT_DIR, ".benchmark_local.json")
 os.makedirs(LOGS_DIR, exist_ok=True)
 
 def get_python_executable():
@@ -35,8 +39,126 @@ VENV_PYTHON = get_python_executable()
 STEPS = 50
 EVAL_MODE = "quick"
 COOLDOWN_SECONDS = 0
+SEQ_LEN = 512
+DEVICE_BATCH_SIZE = None
+AUTO_DEVICE_BATCH_SIZE = True
+REFRESH_AUTO_DEVICE_BATCH_SIZE = False
 train_files = []
 train_script_args = []
+
+OOM_PATTERNS = (
+    "out of memory",
+    "cuda error: out of memory",
+    "cublas_status_alloc_failed",
+    "cuda out of memory",
+)
+
+
+def load_local_cache():
+    if not os.path.exists(LOCAL_CACHE_PATH):
+        return {}
+    try:
+        with open(LOCAL_CACHE_PATH, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def save_local_cache(cache):
+    tmp_path = LOCAL_CACHE_PATH + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as fh:
+        json.dump(cache, fh, indent=2, sort_keys=True)
+    os.replace(tmp_path, LOCAL_CACHE_PATH)
+
+
+def get_machine_key():
+    cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "all")
+    return f"{platform.node()}::{cuda_visible}"
+
+
+def get_cache_bucket(cache):
+    machines = cache.setdefault("machines", {})
+    return machines.setdefault(get_machine_key(), {})
+
+
+def get_batch_cache_key(script, seq_len):
+    rel_script = os.path.relpath(os.path.abspath(script), SCRIPT_DIR).replace("\\", "/")
+    return f"{rel_script}::seq={seq_len}::no_compile=1"
+
+
+def is_oom_output(output):
+    lowered = output.lower()
+    return any(pattern in lowered for pattern in OOM_PATTERNS)
+
+
+def build_train_command(cfg, device_batch_size, eval_mode):
+    cmd = [
+        VENV_PYTHON,
+        cfg["script"],
+        f"--steps={STEPS}",
+        f"--seq-len={SEQ_LEN}",
+        f"--device-batch-size={device_batch_size}",
+        "--no-compile",
+    ]
+    cmd.extend(train_script_args)
+    cmd.extend(cfg.get("extra_args", []))
+    if eval_mode == "none":
+        cmd.append("--no-eval")
+    elif eval_mode == "quick":
+        cmd.append("--quick-eval")
+    return cmd
+
+
+def run_command_capture(cmd):
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    output_lines = []
+    for line in proc.stdout:
+        output_lines.append(line)
+    proc.wait()
+    return proc.returncode, "".join(output_lines), output_lines
+
+
+def autotune_device_batch_size(configs, log):
+    cache = load_local_cache()
+    bucket = get_cache_bucket(cache)
+    chosen_sizes = []
+    probe_candidates = [64, 48, 32, 24, 20, 16, 12, 8, 6, 4, 2, 1]
+
+    for cfg in configs:
+        cache_key = get_batch_cache_key(cfg["script"], SEQ_LEN)
+        cached = None if REFRESH_AUTO_DEVICE_BATCH_SIZE else bucket.get(cache_key)
+        if isinstance(cached, dict) and isinstance(cached.get("device_batch_size"), int):
+            batch_size = cached["device_batch_size"]
+            chosen_sizes.append(batch_size)
+            log(f"Auto batch cache: {cfg['title']} -> {batch_size} (local cache)")
+            continue
+
+        log(f"Auto batch probe: {cfg['title']} (seq_len={SEQ_LEN})")
+        success_batch = None
+        for candidate in probe_candidates:
+            probe_cmd = build_train_command(cfg, candidate, eval_mode="none")
+            exit_code, output, _ = run_command_capture(probe_cmd)
+            if exit_code == 0:
+                success_batch = candidate
+                break
+            if not is_oom_output(output):
+                break
+        if success_batch is None:
+            success_batch = 1
+            log(f"Auto batch probe inconclusive para {cfg['title']}; usando fallback={success_batch}")
+        else:
+            log(f"Auto batch tuned: {cfg['title']} -> {success_batch}")
+
+        bucket[cache_key] = {
+            "device_batch_size": success_batch,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        chosen_sizes.append(success_batch)
+
+    save_local_cache(cache)
+    final_batch = min(chosen_sizes) if chosen_sizes else 16
+    log(f"Device batch size escolhido: {final_batch} (cache local: {os.path.basename(LOCAL_CACHE_PATH)})")
+    return final_batch
 
 
 def parse_config_arg(arg):
@@ -69,6 +191,15 @@ for arg in sys.argv[1:]:
         STEPS = int(arg.split("=", 1)[1])
     elif arg.startswith("--cooldown="):
         COOLDOWN_SECONDS = int(arg.split("=", 1)[1])
+    elif arg.startswith("--seq-len="):
+        SEQ_LEN = int(arg.split("=", 1)[1])
+    elif arg.startswith("--device-batch-size="):
+        DEVICE_BATCH_SIZE = int(arg.split("=", 1)[1])
+        AUTO_DEVICE_BATCH_SIZE = False
+    elif arg == "--no-auto-device-batch-size":
+        AUTO_DEVICE_BATCH_SIZE = False
+    elif arg == "--refresh-auto-device-batch-size":
+        REFRESH_AUTO_DEVICE_BATCH_SIZE = True
     elif arg == "--full-eval":
         EVAL_MODE = "full"
     elif arg == "--no-eval":
@@ -159,6 +290,12 @@ for item in train_files:
         "extra_args": item["extra_args"],
     })
 
+if DEVICE_BATCH_SIZE is None:
+    if AUTO_DEVICE_BATCH_SIZE:
+        DEVICE_BATCH_SIZE = "AUTO"
+    else:
+        DEVICE_BATCH_SIZE = 16
+
 BPB_RE = re.compile(r"val_bpb:\s+([\d.]+)")
 TOKENS_RE = re.compile(r"total_tokens_M:\s+([\d.]+)")
 STEPS_RE = re.compile(r"num_steps:\s+(\d+)")
@@ -184,7 +321,11 @@ def log(msg="", end="\n"):
 log(f"\n{'='*60}")
 log(f"  BENCHMARK: {len(CONFIGS)} configs x {STEPS} steps  ({eval_label})")
 log(f"  Log: {log_path}")
+log(f"  seq_len={SEQ_LEN}  device_batch_size={DEVICE_BATCH_SIZE}")
 log(f"{'='*60}")
+
+if DEVICE_BATCH_SIZE == "AUTO":
+    DEVICE_BATCH_SIZE = autotune_device_batch_size(CONFIGS, log)
 
 bench_start = time.time()
 
@@ -201,19 +342,7 @@ for i, cfg in enumerate(CONFIGS):
     log(f"  [{i+1}/{len(CONFIGS)}] {label}  ({STEPS} steps){eta_str}")
     log(f"{'-'*60}\n")
 
-    cmd = [
-        VENV_PYTHON, cfg["script"],
-        f"--steps={STEPS}",
-        "--seq-len=512",
-        "--device-batch-size=16",
-        "--no-compile",
-    ]
-    cmd.extend(train_script_args)
-    cmd.extend(cfg.get("extra_args", []))
-    if EVAL_MODE == "none":
-        cmd.append("--no-eval")
-    elif EVAL_MODE == "quick":
-        cmd.append("--quick-eval")
+    cmd = build_train_command(cfg, DEVICE_BATCH_SIZE, EVAL_MODE)
     # full: don't add any eval flag (default full eval)
 
     t0 = time.time()
