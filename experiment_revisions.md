@@ -45,25 +45,25 @@ Important measurement note: for `EXP-029.x`, comparisons against baseline should
 We added a shared diagnostic probe to the baseline `train.py` so future revisions can be interpreted with a cleaner causal test.
 
 - New logging fields on the standard `grads | ...` line:
-	- `head_drift0`
-	- `head_delta`
-	- `conf`
-	- `margin`
-	- `ent`
-	- `ent_ratio`
-	- `post_perturb`
-	- `perturb_strength`
+  - `head_drift0`
+  - `head_delta`
+  - `conf`
+  - `margin`
+  - `ent`
+  - `ent_ratio`
+  - `post_perturb`
+  - `perturb_strength`
 - New one-shot perturbation controls:
-	- `--head-perturb-step`
-	- `--head-perturb-scale`
-	- `--head-perturb-mode=noise|shuffle`
+  - `--head-perturb-step`
+  - `--head-perturb-scale`
+  - `--head-perturb-mode=noise|shuffle`
 
 ### What the first probe already showed
 
 - With `shuffle=0.15` at `step=10` on the 32k-vocab baseline, the head took a measurable local hit:
-	- lower `conf`
-	- lower `margin`
-	- higher `ent_ratio`
+  - lower `conf`
+  - lower `margin`
+  - higher `ent_ratio`
 - By `step=30`, loss and confidence-like metrics were already close to the unperturbed baseline again.
 
 ### What remains unresolved
