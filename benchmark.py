@@ -118,6 +118,15 @@ def run_command_capture(cmd):
     return proc.returncode, "".join(output_lines), output_lines
 
 
+def summarize_probe_failure(output_lines, max_lines=12):
+    if not output_lines:
+        return "(sem output)"
+    tail = [line.rstrip() for line in output_lines[-max_lines:] if line.strip()]
+    if not tail:
+        return "(sem output relevante)"
+    return "\n".join(tail)
+
+
 def autotune_device_batch_size(configs, log):
     cache = load_local_cache()
     bucket = get_cache_bucket(cache)
@@ -135,17 +144,31 @@ def autotune_device_batch_size(configs, log):
 
         log(f"Auto batch probe: {cfg['title']} (seq_len={SEQ_LEN})")
         success_batch = None
+        saw_oom = False
         for candidate in probe_candidates:
             probe_cmd = build_train_command(cfg, candidate, eval_mode="none")
-            exit_code, output, _ = run_command_capture(probe_cmd)
+            exit_code, output, output_lines = run_command_capture(probe_cmd)
             if exit_code == 0:
                 success_batch = candidate
                 break
-            if not is_oom_output(output):
-                break
+            if is_oom_output(output):
+                saw_oom = True
+                log(f"  probe batch={candidate}: OOM")
+                continue
+
+            failure_summary = summarize_probe_failure(output_lines)
+            raise RuntimeError(
+                f"Auto batch probe falhou por motivo diferente de OOM em {cfg['title']} com batch={candidate}.\n"
+                f"Resumo do erro:\n{failure_summary}"
+            )
         if success_batch is None:
-            success_batch = 1
-            log(f"Auto batch probe inconclusive para {cfg['title']}; usando fallback={success_batch}")
+            if saw_oom:
+                raise RuntimeError(
+                    f"Auto batch probe: nenhum batch coube para {cfg['title']} ate batch=1."
+                )
+            raise RuntimeError(
+                f"Auto batch probe inconclusive para {cfg['title']} sem OOM detectado."
+            )
         else:
             log(f"Auto batch tuned: {cfg['title']} -> {success_batch}")
 
