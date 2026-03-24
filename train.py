@@ -8,6 +8,7 @@ EXP_TITLE = "Baseline"
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+DISABLE_FA3 = os.environ.get("AUTORESEARCH_DISABLE_FA3", "0") == "1"
 
 import gc
 import math
@@ -27,10 +28,14 @@ cap = torch.cuda.get_device_capability()
 repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
 fa3 = None
 fa3_runtime_disabled = False
-try:
-    fa3 = get_kernel(repo).flash_attn_interface
-except Exception as exc:
-    print(f"Warning: FlashAttention indisponivel ({exc}). Usando fallback de atencao nativo.")
+if DISABLE_FA3:
+    fa3_runtime_disabled = True
+    print("Warning: FlashAttention desabilitado por AUTORESEARCH_DISABLE_FA3=1. Usando fallback de atencao nativo.")
+else:
+    try:
+        fa3 = get_kernel(repo).flash_attn_interface
+    except Exception as exc:
+        print(f"Warning: FlashAttention indisponivel ({exc}). Usando fallback de atencao nativo.")
 
 
 def should_disable_fa3_runtime(exc):

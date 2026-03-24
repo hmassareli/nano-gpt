@@ -138,9 +138,13 @@ def autotune_device_batch_size(configs, log):
         cached = None if REFRESH_AUTO_DEVICE_BATCH_SIZE else bucket.get(cache_key)
         if isinstance(cached, dict) and isinstance(cached.get("device_batch_size"), int):
             batch_size = cached["device_batch_size"]
-            chosen_sizes.append(batch_size)
-            log(f"Auto batch cache: {cfg['title']} -> {batch_size} (local cache)")
-            continue
+            if batch_size <= 1:
+                log(f"Auto batch cache ignorado para {cfg['title']}: valor suspeito={batch_size}; reprobe")
+                cached = None
+            else:
+                chosen_sizes.append(batch_size)
+                log(f"Auto batch cache: {cfg['title']} -> {batch_size} (local cache)")
+                continue
 
         log(f"Auto batch probe: {cfg['title']} (seq_len={SEQ_LEN})")
         success_batch = None
