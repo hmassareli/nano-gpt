@@ -356,8 +356,11 @@ Se ela so melhorar CE cedo, mas continuar igualmente dependente do head, provave
 
 - `EXP-029.2.7` implementado em `experiments/train_exp029_2_7_projected_future_window_warmdown.py`
 - `EXP-026.1` implementado em `experiments/train_exp026_1_future_window_codec.py`
+- `EXP-026.4` implementado em `experiments/train_exp026_4_token_patch_codec_warmdown.py`
 
 Observacao: o `EXP-026.1` implementado e a versao pratica viavel no pipeline atual, com codec aprendido online e estabilizado por reconstrucao, nao um codec totalmente pretreinado e congelado fora do loop principal. 5. freeze/perturb sweeps nas melhores variantes
+
+Observacao adicional: o `EXP-026.4` novo aproxima melhor a leitura do CALM sem pivot completo. Ele ancora o target em patches reais de tokens futuros, faz um pequeno pretrain do codec dentro do proprio treino, congela o codec depois dessa fase e so entao usa o latente congelado como alvo auxiliar com warmdown.
 
 ## Minha aposta atual
 

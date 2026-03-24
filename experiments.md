@@ -380,12 +380,15 @@ Isso muda a interpretacao da familia. O problema agora parece menos "a ideia JEP
 **New CALM-inspired variants now implemented:**
 
 - `EXP-026.1`: future-window learned codec with explicit codec reconstruction loss
+- `EXP-026.4`: token-patch codec target with codec pretrain/freeze and latent warmdown
 
 These variants all test the same updated thesis: the future signal may be useful, but the current raw-hidden target is probably too blunt.
 
 The new `EXP-029.2.7` is the strongest immediate synthesis of the current evidence because it combines the three corrections that already looked independently justified: narrower target geometry, short-horizon future summary, and reduced late-stage auxiliary pressure.
 
 The new `EXP-026.1` is a practical bridge toward the CALM reading without requiring a fully separate pretraining pipeline for a frozen codec. It learns a compact future-summary target space online, while keeping the codec pressure separated from CE through a dedicated reconstruction term.
+
+The new `EXP-026.4` is a closer CALM-lite translation for the current pipeline: the auxiliary target is grounded in actual future token patches instead of future hidden averages, the codec is trained first and then frozen in-place, and the latent predictor only learns against that stabilized token-grounded interface.
 
 ## EXP-030: Gated Latent Readout
 
