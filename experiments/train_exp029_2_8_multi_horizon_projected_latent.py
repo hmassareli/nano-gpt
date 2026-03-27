@@ -3,7 +3,7 @@ Autoresearch pretraining script. Single-GPU, single-file.
 Cherry-picked and simplified from nanochat.
 Usage: uv run train.py
 """
-EXP_TITLE = "EXP-026.1: Future-Window Learned Codec"
+EXP_TITLE = "EXP-029.2.8: Multi-Horizon Projected Latent Prediction"
 
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -49,15 +49,25 @@ def should_disable_fa3_runtime(exc):
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 
 # ---------------------------------------------------------------------------
-# EXP-026.1 hyperparameters
+# EXP-029.2.8 hyperparameters
 # ---------------------------------------------------------------------------
 SOURCE_LAYER = 6  # Predict from h_6
-LATENT_LOSS_LAMBDA = 0.25  # Keep parity with the best 029.2 fixed-weight regime
-CODEC_RECON_LAMBDA = 1.0  # Train the codec on future-summary reconstruction, not on CE directly
+LATENT_LOSS_LAMBDA = 0.25  # Keep the strongest fixed regime from the 029.2 line
 PREDICTOR_HIDDEN_DIM = 512  # Small MLP predictor
-CODEC_HIDDEN_DIM = 512  # Keep codec width modest to avoid turning it into a second backbone
-CODEC_LATENT_DIM = 256  # Learned supervision space, narrower than full hidden width
-FUTURE_WINDOW = 4  # Encode a short-horizon summary rather than a single next hidden state
+PROJECTED_TARGET_DIM = 256  # Keep the auxiliary target narrower than the full hidden state
+FUTURE_HORIZONS = 4  # Predict several short-horizon latent targets instead of one averaged summary
+HORIZON_GAMMA = 0.7  # Bias the auxiliary pressure toward the nearest future steps
+LATENT_WARMDOWN_START = 0.2  # Start decaying once the early gain phase is mostly over
+LATENT_WARMDOWN_END = 0.9    # Remove almost all latent pressure before the endgame CE regime
+
+
+def latent_lambda_for_progress(progress):
+    if progress <= LATENT_WARMDOWN_START:
+        return LATENT_LOSS_LAMBDA
+    if progress >= LATENT_WARMDOWN_END:
+        return 0.0
+    frac = (progress - LATENT_WARMDOWN_START) / (LATENT_WARMDOWN_END - LATENT_WARMDOWN_START)
+    return LATENT_LOSS_LAMBDA * (1.0 - frac)
 
 # ---------------------------------------------------------------------------
 # GPT Model
@@ -180,9 +190,11 @@ class Block(nn.Module):
 
 
 class LatentPredictor(nn.Module):
-    """Small MLP to predict a learned codec target from the source hidden state."""
-    def __init__(self, n_embd, hidden_dim, output_dim):
+    """Small MLP to predict several compact future latent targets from the source hidden state."""
+    def __init__(self, n_embd, hidden_dim, output_dim=None):
         super().__init__()
+        if output_dim is None:
+            output_dim = n_embd
         self.fc1 = nn.Linear(n_embd, hidden_dim, bias=False)
         self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False)
     
@@ -193,26 +205,18 @@ class LatentPredictor(nn.Module):
         return x
 
 
-class FutureWindowCodec(nn.Module):
-    """Encode a future hidden-state summary into a compact latent and reconstruct it."""
-    def __init__(self, n_embd, hidden_dim, latent_dim):
+class TargetProjector(nn.Module):
+    """Map future hidden summaries into a smaller auxiliary target space."""
+    def __init__(self, n_embd, hidden_dim, output_dim):
         super().__init__()
-        self.encoder_fc1 = nn.Linear(n_embd, hidden_dim, bias=False)
-        self.encoder_fc2 = nn.Linear(hidden_dim, latent_dim, bias=False)
-        self.decoder_fc1 = nn.Linear(latent_dim, hidden_dim, bias=False)
-        self.decoder_fc2 = nn.Linear(hidden_dim, n_embd, bias=False)
+        self.fc1 = nn.Linear(n_embd, hidden_dim, bias=False)
+        self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False)
 
-    def encode(self, x):
-        x = self.encoder_fc1(x)
+    def forward(self, x):
+        x = self.fc1(x)
         x = F.gelu(x)
-        x = self.encoder_fc2(x)
+        x = self.fc2(x)
         return x
-
-    def decode(self, z):
-        z = self.decoder_fc1(z)
-        z = F.gelu(z)
-        z = self.decoder_fc2(z)
-        return z
 
 
 class GPT(nn.Module):
@@ -228,9 +232,13 @@ class GPT(nn.Module):
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
         
-        # EXP-026.1: Predictor plus learned future-window codec
-        self.latent_predictor = LatentPredictor(config.n_embd, PREDICTOR_HIDDEN_DIM, CODEC_LATENT_DIM)
-        self.future_window_codec = FutureWindowCodec(config.n_embd, CODEC_HIDDEN_DIM, CODEC_LATENT_DIM)
+        # EXP-029.2.8: Predict one projected latent per future horizon.
+        self.latent_predictor = LatentPredictor(
+            config.n_embd,
+            PREDICTOR_HIDDEN_DIM,
+            PROJECTED_TARGET_DIM * FUTURE_HORIZONS,
+        )
+        self.target_projector = TargetProjector(config.n_embd, PREDICTOR_HIDDEN_DIM, PROJECTED_TARGET_DIM)
         
         # Value embeddings
         head_dim = config.n_embd // config.n_head
@@ -264,13 +272,11 @@ class GPT(nn.Module):
         self.resid_lambdas.fill_(1.0)
         self.x0_lambdas.fill_(0.1)
         
-        # EXP-026.1: Init latent predictor and codec
+        # EXP-029.2.8: Init latent modules
         torch.nn.init.uniform_(self.latent_predictor.fc1.weight, -s, s)
         torch.nn.init.zeros_(self.latent_predictor.fc2.weight)
-        torch.nn.init.uniform_(self.future_window_codec.encoder_fc1.weight, -s, s)
-        torch.nn.init.uniform_(self.future_window_codec.encoder_fc2.weight, -s, s)
-        torch.nn.init.uniform_(self.future_window_codec.decoder_fc1.weight, -s, s)
-        torch.nn.init.zeros_(self.future_window_codec.decoder_fc2.weight)
+        torch.nn.init.uniform_(self.target_projector.fc1.weight, -s, s)
+        torch.nn.init.zeros_(self.target_projector.fc2.weight)
         
         # Value embeddings
         for ve in self.value_embeds.values():
@@ -335,13 +341,13 @@ class GPT(nn.Module):
         lm_head = sum(p.numel() for p in self.lm_head.parameters())
         transformer_matrices = sum(p.numel() for p in self.transformer.h.parameters())
         latent_predictor = sum(p.numel() for p in self.latent_predictor.parameters())
-        future_window_codec = sum(p.numel() for p in self.future_window_codec.parameters())
+        target_projector = sum(p.numel() for p in self.target_projector.parameters())
         scalars = self.resid_lambdas.numel() + self.x0_lambdas.numel()
-        total = wte + value_embeds + lm_head + transformer_matrices + latent_predictor + future_window_codec + scalars
+        total = wte + value_embeds + lm_head + transformer_matrices + latent_predictor + target_projector + scalars
         return {
             'wte': wte, 'value_embeds': value_embeds, 'lm_head': lm_head,
             'transformer_matrices': transformer_matrices, 'latent_predictor': latent_predictor,
-            'future_window_codec': future_window_codec,
+            'target_projector': target_projector,
             'scalars': scalars, 'total': total,
         }
 
@@ -355,11 +361,11 @@ class GPT(nn.Module):
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
         predictor_params = list(self.latent_predictor.parameters())
-        codec_params = list(self.future_window_codec.parameters())
+        target_projector_params = list(self.target_projector.parameters())
         
         assert len(list(self.parameters())) == (len(matrix_params) + len(embedding_params) +
             len(lm_head_params) + len(value_embeds_params) + len(resid_params) + 
-            len(x0_params) + len(predictor_params) + len(codec_params))
+            len(x0_params) + len(predictor_params) + len(target_projector_params))
         
         # Scale LR ∝ 1/√dmodel (tuned at 768 dim)
         dmodel_lr_scale = (model_dim / 768) ** -0.5
@@ -369,7 +375,7 @@ class GPT(nn.Module):
             dict(kind='adamw', params=embedding_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=value_embeds_params, lr=0.5 * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=predictor_params, lr=0.02 * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=codec_params, lr=0.01 * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', params=target_projector_params, lr=0.02 * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=resid_params, lr=scalar_lr * 0.01, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=x0_params, lr=scalar_lr, betas=(0.9, 0.99), eps=1e-10, weight_decay=0.0),
         ]
@@ -415,41 +421,54 @@ class GPT(nn.Module):
             return x, intermediate
         return x
 
-    def forward_head(self, x, targets=None, reduction='mean', intermediate=None, return_components=False):
+    def forward_head(self, x, targets=None, reduction='mean', intermediate=None, return_components=False, latent_lambda=None):
         softcap = 13
         logits = self.lm_head(x)
         logits = logits.float()
         logits = softcap * torch.tanh(logits / softcap)
 
         if targets is not None:
+            if latent_lambda is None:
+                latent_lambda = LATENT_LOSS_LAMBDA
             ce_loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1),
                                       ignore_index=-1, reduction=reduction)
             latent_loss = torch.zeros((), device=logits.device, dtype=torch.float32)
-            codec_loss = torch.zeros((), device=logits.device, dtype=torch.float32)
             
-            # EXP-026.1: learn a compact codec for the future-window summary and predict that latent target
-            if intermediate is not None and intermediate.size(1) > FUTURE_WINDOW:
-                valid_len = intermediate.size(1) - FUTURE_WINDOW
-                predicted_latent = self.latent_predictor(intermediate[:, :valid_len].float())
+            # EXP-029.2.8: predict one projected latent per future horizon and weight nearer horizons more.
+            if intermediate is not None and intermediate.size(1) > FUTURE_HORIZONS:
+                valid_len = intermediate.size(1) - FUTURE_HORIZONS
+                predicted_next = self.latent_predictor(intermediate[:, :valid_len].float())
+                predicted_next = predicted_next.view(
+                    predicted_next.size(0),
+                    predicted_next.size(1),
+                    FUTURE_HORIZONS,
+                    PROJECTED_TARGET_DIM,
+                )
                 target_terms = [
-                    x[:, offset:offset + valid_len].float().detach()
-                    for offset in range(1, FUTURE_WINDOW + 1)
+                    self.target_projector(x[:, offset:offset + valid_len].float().detach())
+                    for offset in range(1, FUTURE_HORIZONS + 1)
                 ]
-                future_summary = torch.stack(target_terms, dim=0).mean(dim=0)
-                target_latent = self.future_window_codec.encode(future_summary)
-                recon_summary = self.future_window_codec.decode(target_latent)
-                latent_loss = F.mse_loss(predicted_latent, target_latent.detach(), reduction='mean')
-                codec_loss = F.mse_loss(recon_summary, future_summary, reduction='mean')
-            total_loss = ce_loss + LATENT_LOSS_LAMBDA * latent_loss + CODEC_RECON_LAMBDA * codec_loss
+                target_next = torch.stack(target_terms, dim=2)
+                pred_norm = F.normalize(predicted_next, dim=-1)
+                target_norm = F.normalize(target_next, dim=-1)
+                cosine_per_horizon = 1.0 - (pred_norm * target_norm).sum(dim=-1)
+                horizon_weights = torch.tensor(
+                    [HORIZON_GAMMA ** horizon for horizon in range(FUTURE_HORIZONS)],
+                    device=logits.device,
+                    dtype=cosine_per_horizon.dtype,
+                )
+                horizon_weights = horizon_weights / horizon_weights.sum()
+                latent_loss = (cosine_per_horizon * horizon_weights.view(1, 1, -1)).sum(dim=-1).mean()
+            total_loss = ce_loss + latent_lambda * latent_loss
             if return_components:
-                return total_loss, ce_loss.detach().float(), latent_loss.detach().float(), codec_loss.detach().float()
+                return total_loss, ce_loss.detach().float(), latent_loss.detach().float(), torch.tensor(latent_lambda, device=logits.device, dtype=torch.float32)
             return total_loss
         return logits
 
-    def forward(self, idx, targets=None, reduction='mean', return_components=False):
+    def forward(self, idx, targets=None, reduction='mean', return_components=False, latent_lambda=None):
         if targets is not None:
             x, intermediate = self.forward_backbone(idx, return_intermediate=True)
-            return self.forward_head(x, targets, reduction, intermediate, return_components)
+            return self.forward_head(x, targets, reduction, intermediate, return_components, latent_lambda)
         else:
             x = self.forward_backbone(idx, return_intermediate=False)
             return self.forward_head(x, targets, reduction, None, False)
@@ -713,7 +732,7 @@ total_training_time = 0.0
 smooth_train_loss = 0.0
 smooth_ce_loss = 0.0
 smooth_latent_loss = 0.0
-smooth_codec_loss = 0.0
+smooth_latent_lambda = 0.0
 
 print("\n--- Training ---")
 
@@ -737,25 +756,24 @@ while True:
     loss_accum = 0.0
     ce_loss_accum = 0.0
     latent_loss_accum = 0.0
-    codec_loss_accum = 0.0
+    latent_lambda_accum = 0.0
     for micro_step in range(GRAD_ACCUM_STEPS):
         with autocast_ctx:
-            train_loss, ce_loss, latent_loss, codec_loss = model(x, y, reduction='sum', return_components=True)
+            latent_lambda = latent_lambda_for_progress(progress)
+            train_loss, ce_loss, latent_loss, latent_lambda_t = model(x, y, reduction='sum', return_components=True, latent_lambda=latent_lambda)
             train_loss = train_loss / x.numel()
             ce_loss = ce_loss / x.numel()
-            latent_loss = latent_loss / x.numel()
-            codec_loss = codec_loss / x.numel()
         loss_accum += train_loss.detach()
         ce_loss_accum += ce_loss.detach()
         latent_loss_accum += latent_loss.detach()
-        codec_loss_accum += codec_loss.detach()
+        latent_lambda_accum += latent_lambda_t.item()
         (train_loss / GRAD_ACCUM_STEPS).backward()
         x, y, epoch = next(train_loader)
 
     train_loss = loss_accum / GRAD_ACCUM_STEPS
     ce_loss = ce_loss_accum / GRAD_ACCUM_STEPS
     latent_loss = latent_loss_accum / GRAD_ACCUM_STEPS
-    codec_loss = codec_loss_accum / GRAD_ACCUM_STEPS
+    latent_lambda = latent_lambda_accum / GRAD_ACCUM_STEPS
 
     # Gradient metrics
     grad_info = None
@@ -786,11 +804,11 @@ while True:
     smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f
     smooth_ce_loss = ema_beta * smooth_ce_loss + (1 - ema_beta) * ce_loss.item()
     smooth_latent_loss = ema_beta * smooth_latent_loss + (1 - ema_beta) * latent_loss.item()
-    smooth_codec_loss = ema_beta * smooth_codec_loss + (1 - ema_beta) * codec_loss.item()
+    smooth_latent_lambda = ema_beta * smooth_latent_lambda + (1 - ema_beta) * latent_lambda
     debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1))
     debiased_smooth_ce = smooth_ce_loss / (1 - ema_beta**(step + 1))
     debiased_smooth_latent = smooth_latent_loss / (1 - ema_beta**(step + 1))
-    debiased_smooth_codec = smooth_codec_loss / (1 - ema_beta**(step + 1))
+    debiased_smooth_latent_lambda = smooth_latent_lambda / (1 - ema_beta**(step + 1))
     pct_done = 100 * progress
     tok_per_sec = int(TOTAL_BATCH_SIZE / dt)
     mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE / dt / H100_BF16_PEAK_FLOPS
@@ -801,7 +819,7 @@ while True:
         remaining = max(0, TIME_BUDGET - total_training_time)
         remaining_str = f"{remaining:.0f}s"
 
-    print(f"step {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | ce: {debiased_smooth_ce:.6f} | latent: {debiased_smooth_latent:.6f} | codec: {debiased_smooth_codec:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining_str}    ", flush=True)
+    print(f"step {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | ce: {debiased_smooth_ce:.6f} | latent: {debiased_smooth_latent:.6f} | latent_lambda: {debiased_smooth_latent_lambda:.4f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining_str}    ", flush=True)
     if grad_info is not None:
         print(grad_info["log_line"], flush=True)
 

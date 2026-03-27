@@ -8,6 +8,7 @@ EXP_TITLE = "EXP-029.2.7: Projected Future-Window Latent Prediction (Warmdown)"
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+DISABLE_FA3 = os.environ.get("AUTORESEARCH_DISABLE_FA3", "0") == "1"
 
 import gc
 import time
@@ -26,10 +27,24 @@ cap = torch.cuda.get_device_capability()
 # varunneal's FA3 is Hopper only, use kernels-community on non-Hopper GPUs
 repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
 fa3 = None
-try:
-    fa3 = get_kernel(repo).flash_attn_interface
-except Exception as exc:
-    print(f"Warning: FlashAttention indisponivel ({exc}). Usando fallback de atencao nativo.")
+fa3_runtime_disabled = False
+if DISABLE_FA3:
+    fa3_runtime_disabled = True
+    print("Warning: FlashAttention desabilitado por AUTORESEARCH_DISABLE_FA3=1. Usando fallback de atencao nativo.")
+else:
+    try:
+        fa3 = get_kernel(repo).flash_attn_interface
+    except Exception as exc:
+        print(f"Warning: FlashAttention indisponivel ({exc}). Usando fallback de atencao nativo.")
+
+
+def should_disable_fa3_runtime(exc):
+    message = str(exc).lower()
+    return (
+        "no kernel image is available" in message
+        or "invalid device function" in message
+        or "not implemented for" in message
+    )
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 
@@ -104,6 +119,7 @@ class CausalSelfAttention(nn.Module):
         self.ve_gate = nn.Linear(self.ve_gate_channels, self.n_kv_head, bias=False) if has_ve(layer_idx, config.n_layer) else None
 
     def forward(self, x, ve, cos_sin, window_size):
+        global fa3, fa3_runtime_disabled
         B, T, C = x.size()
         q = self.c_q(x).view(B, T, self.n_head, self.head_dim)
         k = self.c_k(x).view(B, T, self.n_kv_head, self.head_dim)
@@ -119,9 +135,17 @@ class CausalSelfAttention(nn.Module):
         q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
         q, k = norm(q), norm(k)
 
-        if fa3 is not None:
-            y = fa3.flash_attn_func(q, k, v, causal=True, window_size=window_size)
-        else:
+        if fa3 is not None and not fa3_runtime_disabled:
+            try:
+                y = fa3.flash_attn_func(q, k, v, causal=True, window_size=window_size)
+            except RuntimeError as exc:
+                if not should_disable_fa3_runtime(exc):
+                    raise
+                fa3_runtime_disabled = True
+                fa3 = None
+                print(f"Warning: FlashAttention runtime incompatível ({exc}). Usando fallback de atencao nativo.")
+
+        if fa3 is None or fa3_runtime_disabled:
             q_t = q.transpose(1, 2)
             k_t = k.transpose(1, 2)
             v_t = v.transpose(1, 2)
